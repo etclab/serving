@@ -1,0 +1,3 @@
+- [Create a cluster with](https://knative.dev/docs/install/quickstart-install/#__tabbed_3_2): `kn quickstart minikube`
+- Start minikube tunnel: `minikube tunnel --profile knative`
+- Apply all the yaml in this folder with: `kubectl apply -f .`
