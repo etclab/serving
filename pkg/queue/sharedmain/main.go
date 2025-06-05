@@ -17,10 +17,13 @@ limitations under the License.
 package sharedmain
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -200,6 +203,10 @@ func Main(opts ...Option) error {
 
 	d.Logger = logger
 	d.Transport = buildTransport(env)
+
+	d.Transport = &DebugTransport{
+		Transport: d.Transport,
+	}
 
 	if env.TracingConfigBackend != tracingconfig.None {
 		oct := tracing.NewOpenCensusTracer(tracing.WithExporterFull(env.ServingPod, env.ServingPodIP, logger))
@@ -400,6 +407,64 @@ func buildProbe(logger *zap.SugaredLogger, encodedProbe string, autodetectHTTP2 
 		return readiness.NewProbeWithHTTP2AutoDetection(coreProbes)
 	}
 	return readiness.NewProbe(coreProbes)
+}
+
+type DebugTransport struct {
+	Transport http.RoundTripper
+}
+
+func logWithPrefix(prefix string) func(format string, v ...interface{}) {
+	return func(format string, v ...interface{}) {
+		log.Printf("["+prefix+"] "+format, v...)
+	}
+}
+
+func (t *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	logDev := logWithPrefix("dev - RoundTrip")
+
+	logDev("Request: %s %s\n", req.Method, req.URL.String())
+	for name, values := range req.Header {
+		for _, value := range values {
+			logDev("  %s: %s\n", name, value)
+		}
+	}
+
+	if req.Body != nil {
+		bodyBytes, err := io.ReadAll(req.Body)
+		if err != nil {
+			logDev("Error reading request body: %v", err)
+		} else {
+			logDev("Request Body: %s", string(bodyBytes))
+			// Restore the body
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+	}
+
+	resp, err := t.Transport.RoundTrip(req)
+	if err != nil {
+		logDev("Error: %v\n", err)
+		return nil, err
+	}
+
+	logDev("Response: %s %s %d\n", req.Method, req.URL.String(), resp.StatusCode)
+	for name, values := range resp.Header {
+		for _, value := range values {
+			logDev("  %s: %s\n", name, value)
+		}
+	}
+
+	if resp.Body != nil {
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logDev("Error reading response body: %v", err)
+		} else {
+			logDev("Response Body: %s", string(bodyBytes))
+			// Restore the body
+			resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+	}
+
+	return resp, nil
 }
 
 func buildTransport(env config) http.RoundTripper {
