@@ -69,7 +69,7 @@ data:
     # For queue proxy, changes require recreation of the pods.
     loglevel.controller: "info"
     loglevel.autoscaler: "info"
-    loglevel.queueproxy: "info"
+    loglevel.queueproxy: "debug"
     loglevel.webhook: "info"
     loglevel.activator: "info"
     loglevel.hpaautoscaler: "info"

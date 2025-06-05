@@ -50,6 +50,8 @@ import (
 	"knative.dev/serving/pkg/networking"
 	"knative.dev/serving/pkg/queue"
 	"knative.dev/serving/pkg/queue/readiness"
+
+	"github.com/etclab/pre"
 )
 
 const (
@@ -157,6 +159,9 @@ type Defaults struct {
 	// If Transport is wrapped, the new RoundTripper should replace the value of Transport.
 	// The new Transport will then be used by other Options (called next) and by QP.
 	Transport http.RoundTripper
+
+	// holds proxy re-encryption related values
+	PreContext *PreContext
 }
 
 type Option func(*Defaults)
@@ -177,11 +182,14 @@ func Main(opts ...Option) error {
 		return err
 	}
 
+	// NOTE: d.Env is very very useful
 	d.Env = env.Env
 
 	// Setup the Logger.
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
 	defer flush(logger)
+
+	logger.Infof("[dev] d.Env = %+v", d.Env)
 
 	logger = logger.Named("queueproxy").With(
 		zap.String(logkey.Key, types.NamespacedName{
@@ -205,9 +213,15 @@ func Main(opts ...Option) error {
 	}
 
 	// allow extensions to read d and return modified context and transport
+	opts = append(opts, InitProxyReEncryption())
 	for _, opts := range opts {
 		opts(&d)
 	}
+
+	logger.Infof("[dev] d.PreContext.FunctionId = %+v", d.PreContext.FunctionId)
+	logger.Infof("[dev] d.PreContext.InstanceId = %+v", d.PreContext.InstanceId)
+	logger.Infof("[dev] d.PreContext.PublicParams = %+v", d.PreContext.PublicParams)
+	logger.Infof("[dev] d.PreContext.KeyPair = %+v", d.PreContext.KeyPair)
 
 	// Report stats on Go memory usage every 30 seconds.
 	metrics.MemStatsOrDie(d.Ctx)
@@ -233,7 +247,9 @@ func Main(opts ...Option) error {
 
 	// Enable TLS when certificate is mounted.
 	tlsEnabled := exists(logger, certPath) && exists(logger, keyPath)
+	logger.Infof("[dev] TLS enabled: %v (cert: %s, key: %s)", tlsEnabled, certPath, keyPath)
 
+	// what does mainHandler do?
 	mainHandler, drainer := mainHandler(d.Ctx, env, d.Transport, probe, stats, logger)
 	adminHandler := adminHandler(d.Ctx, logger, drainer)
 
@@ -280,6 +296,7 @@ func Main(opts ...Option) error {
 			}
 		}(name, server)
 	}
+	// no tls servers seen on logs
 	for name, server := range tlsServers {
 		go func(name string, s *http.Server) {
 			logger.Info("Starting tls server ", name, s.Addr)
@@ -293,6 +310,8 @@ func Main(opts ...Option) error {
 			}
 		}(name, server)
 	}
+
+	logger.Infof("[dev] scanned queue-proxy with config: %+v", env)
 
 	// Blocks until we actually receive a TERM signal or one of the servers
 	// exits unexpectedly. We fold both signals together because we only want
@@ -322,6 +341,46 @@ func Main(opts ...Option) error {
 		logger.Info("Shutdown complete, exiting...")
 	}
 	return nil
+}
+
+//	Env:{
+//		ServingNamespace:default
+//		ServingService:second
+//		ServingConfiguration:second
+//		ServingRevision:second-00001
+//		ServingPod:second-00001-deployment-55d95d8764-bd4tq
+//	 	ServingPodIP:10.244.0.98
+//	}
+type PreContext struct {
+	// InstanceId is the ip address of the pod
+	InstanceId string
+	// RevisionId is the unique id for the function
+	// and identifies a deployed revision of the function
+	FunctionId   string
+	KeyPair      *pre.KeyPair
+	PublicParams *pre.PublicParams
+	// Crypto       SambaCrypto
+}
+
+// initialize proxy re-encryption values
+func InitProxyReEncryption() Option {
+	return func(d *Defaults) {
+		// if this is the leader queue-proxy we create new public params
+		// Q: how do I know if I'm the leader?
+		// if this is not the leader queue-proxy, somehow fetch the existing public params
+		// Q: how do I get the existing public params from the leader?
+		// Q: how do I verify I'm talking to the leader?
+		pp := pre.NewPublicParams()
+
+		keyPair := pre.KeyGen(pp)
+
+		d.PreContext = &PreContext{
+			KeyPair:      keyPair,
+			PublicParams: pp,
+			InstanceId:   d.Env.ServingPodIP,
+			FunctionId:   d.Env.ServingRevision,
+		}
+	}
 }
 
 func exists(logger *zap.SugaredLogger, filename string) bool {
