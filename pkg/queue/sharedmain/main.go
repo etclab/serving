@@ -409,14 +409,58 @@ func buildProbe(logger *zap.SugaredLogger, encodedProbe string, autodetectHTTP2 
 	return readiness.NewProbe(coreProbes)
 }
 
+// logs the request and decrypt the body
 type DebugTransport struct {
 	Transport http.RoundTripper
+}
+
+// encrypts the response received from user-container
+func EncryptResponseBody(resp *http.Response) error {
+	logDev := logWithPrefix("dev - ModifyResponse")
+
+	logDev("Response: %s %s %d\n", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode)
+	for name, values := range resp.Header {
+		for _, value := range values {
+			logDev("  %s: %s\n", name, value)
+		}
+	}
+
+	plainBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logDev("Error reading response body: %v", err)
+		return err
+	}
+	resp.Body.Close()
+	logDev("Response Body (plain) (from user-container): %s", string(plainBytes))
+
+	encryptedBytes, err := Encrypt(plainBytes)
+	if err != nil {
+		logDev("Error encrypting response body: %v", err)
+		return err
+	}
+	logDev("Response Body (encrypted): %s", string(encryptedBytes))
+
+	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))
+	resp.ContentLength = int64(len(encryptedBytes))
+	resp.Header.Set("X-Queue-Encrypted", "true")
+
+	return nil
 }
 
 func logWithPrefix(prefix string) func(format string, v ...interface{}) {
 	return func(format string, v ...interface{}) {
 		log.Printf("["+prefix+"] "+format, v...)
 	}
+}
+
+// placeholder encryption
+func Encrypt(plaintext []byte) ([]byte, error) {
+	return bytes.ToUpper(plaintext), nil
+}
+
+// placeholder decryption
+func Decrypt(encBody []byte) ([]byte, error) {
+	return bytes.ToLower(encBody), nil
 }
 
 func (t *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -429,42 +473,26 @@ func (t *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	if req.Body != nil {
-		bodyBytes, err := io.ReadAll(req.Body)
-		if err != nil {
-			logDev("Error reading request body: %v", err)
-		} else {
-			logDev("Request Body: %s", string(bodyBytes))
-			// Restore the body
-			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		}
-	}
-
-	resp, err := t.Transport.RoundTrip(req)
+	encBody, err := io.ReadAll(req.Body)
 	if err != nil {
-		logDev("Error: %v\n", err)
+		logDev("Error reading request body: %v", err)
 		return nil, err
 	}
+	req.Body.Close()
+	logDev("Request Body (encrypted): %s", string(encBody))
 
-	logDev("Response: %s %s %d\n", req.Method, req.URL.String(), resp.StatusCode)
-	for name, values := range resp.Header {
-		for _, value := range values {
-			logDev("  %s: %s\n", name, value)
-		}
+	plaintext, err := Decrypt(encBody)
+	if err != nil {
+		logDev("Error decrypting request body: %v", err)
+		return nil, err
 	}
+	logDev("Request Body (decrypted) (to user-container): %s", string(plaintext))
 
-	if resp.Body != nil {
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			logDev("Error reading response body: %v", err)
-		} else {
-			logDev("Response Body: %s", string(bodyBytes))
-			// Restore the body
-			resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		}
-	}
+	req.Body = io.NopCloser(bytes.NewReader(plaintext))
+	req.ContentLength = int64(len(plaintext))
+	req.Header.Set("X-Queue-Decrypted", "true")
 
-	return resp, nil
+	return t.Transport.RoundTrip(req)
 }
 
 func buildTransport(env config) http.RoundTripper {

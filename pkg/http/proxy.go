@@ -17,7 +17,6 @@ limitations under the License.
 package http
 
 import (
-	"log"
 	"net/http"
 	"net/http/httputil"
 
@@ -58,9 +57,6 @@ func NewHeaderPruningReverseProxy(target, hostOverride string, headersToRemove [
 				req.Header.Del(h)
 			}
 
-			log.Printf("[dev] while creating the request proxy with target: %s, hostOverride: %s, headersToRemove: %v",
-				target, hostOverride, headersToRemove)
-			log.Printf("[dev] the request now is %+v", req.Body)
 		},
 	}
 }

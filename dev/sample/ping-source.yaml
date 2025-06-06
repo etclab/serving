@@ -5,7 +5,7 @@ metadata:
 spec:
   schedule: "*/1 * * * *"
   contentType: "application/json"
-  data: '{"message": "Hello world!"}'
+  data: '{"MESSAGE": "HELLO WORLD!"}' # assume uppercase as encrypted
   sink:
     ref:
       apiVersion: eventing.knative.dev/v1

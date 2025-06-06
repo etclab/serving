@@ -51,6 +51,7 @@ func mainHandler(
 	httpProxy.ErrorHandler = pkghandler.Error(logger)
 	httpProxy.BufferPool = netproxy.NewBufferPool()
 	httpProxy.FlushInterval = netproxy.FlushInterval
+	httpProxy.ModifyResponse = EncryptResponseBody
 
 	breaker := buildBreaker(logger, env)
 	tracingEnabled := env.TracingConfigBackend != tracingconfig.None
