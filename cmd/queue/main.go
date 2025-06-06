@@ -19,10 +19,16 @@ package main
 import (
 	"os"
 
+	// think about the guard-gate pattern later
+	// "knative.dev/security-guard/pkg/qpoption"
+	// _ "knative.dev/security-guard/pkg/test-gate"
 	"knative.dev/serving/pkg/queue/sharedmain"
 )
 
 func main() {
+	// qOpt := qpoption.NewGateQPOption()
+	// defer qOpt.Shutdown()
+	// if sharedmain.Main(qOpt.Setup) != nil {
 	if sharedmain.Main() != nil {
 		os.Exit(1)
 	}

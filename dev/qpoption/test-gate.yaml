@@ -1,0 +1,19 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: helloworld-go
+  namespace: default
+spec:
+  template:
+    metadata:
+        annotations:
+          features.knative.dev/queueproxy-podinfo: enabled
+          qpoption.knative.dev/testgate-activate: enable
+          qpoption.knative.dev/testgate-config-response: CU
+          qpoption.knative.dev/testgate-config-sender: Joe
+    spec:
+      containers:
+        - image: ghcr.io/knative/helloworld-go:latest
+          env:
+            - name: TARGET
+              value: "World"

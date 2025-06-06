@@ -1,0 +1,5 @@
+- The gate pattern seem useful for syncing changes in background
+    - https://github.com/knative-extensions/security-guard/tree/main/pkg/qpoption
+    - https://github.com/knative-extensions/security-guard/tree/main/pkg/guard-gate
+    - https://github.com/knative-extensions/security-guard/blob/main/ARCHITECTURE.md
+    - https://github.com/knative-extensions/security-guard/tree/main/pkg/test-gate
