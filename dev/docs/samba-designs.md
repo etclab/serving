@@ -1,0 +1,33 @@
+### Iteration 2
+- `etcd` as public registry
+	- [protocol for synchronization](./sync-protocol.md)  
+- revisit the goals
+	- Problem: remove the trusted key orchestrator managing the keys among functions.
+---
+### Iteration 1
+- Design One
+	- `KeyRegistry (KR)` is deployed as a pod in the cluster and exposes a grpc API. Functions within the cluster get the address of `KR` via environment variables.
+	- Functions ask `KR` for the public params as they come online. `KR` elects a function as a leader and asks the leader to send it's public params. `KR` stores the public params and replies subsequent functions with the public params (created by the leader function). `KR` also stores the public keys of all replicas of a function and stores the re-encryption keys for all replicas except the leader. 
+	- Questions
+		- Can `KR` decide the leader? --> Yes if `KR` maintains an ordered queue of requests, it can choose the first function it receives a request from and make it a leader. 
+		- If `KR` is untrusted how can I verify it doesn't choose a fake leader? --> We can check the attestation report associated with the public params or the re-encryption keys responses sent by the `KR`.
+		- How can `KR` detect if the leader has gone down? --> Maybe it can check the health of the leader function (or pod)? 
+		- If the leader goes down, and somehow `KR` detected it, how does it then create the new leader? --> `KR` can choose a different leader and ask the new leader to create re-encryption keys for all the users. 
+		- Where do the functions get the re-encryption keys from in the first place? --> Maybe the `KR` can send the address of leader to the rest of the functions. The other functions can then request the leader to create re-encryption keys for the rest of the functions. (Drawback: increase in load in leader if many replicas are spawn at the same time - does removing the leader requirement make it easier?)
+		- Still unclear: How do the rest of the functions handle the leader change? How do they even know the leader went down? What if they encrypt requests to a public key that has already gone down?
+		- Still unclear: how does a function (A) know what function is next (B) in the chain (or sequence)? Because A needs to encrypt the message to B's public key (precisely public key of B's leader) so that it can only be read by B (or its replicas using the re-encryption key)
+		- Still unclear: how does a function (A) discover other functions in the cluster? and how does it know who the leader is?
+- Design Two
+	- There is no `KeyRegistry (KR)`. We use the k8s Lease API among replicas of a function to elect a leader. Only the leader creates the public params and then sends the public params as a CloudEvent into the event mesh. The rest of the replicas listen for the message (w/ public params) from leader and once received create their own key pair. They then send their public keys to generate the re-encryption keys to the leader. 
+	- Questions:
+		- How do I discover then the public keys of all the other leaders? --> Maybe the leader can send its public key to other function replicas as well. 
+		- But what happens if the other function replicas come online later in time when the CloudEvent is already lost? --> This doesn't seem like a good idea.
+		- Is there a way pods/functions can just discover the public keys like they discover endpoints? how do they discover endpoints? can I attach additional data into the endpoint discovery such that public key can be shared/discovered too?
+		- Maybe creating a inter-function key registry `(IKR)` makes sense. `IKR` will just share the public keys of leaders to all the functions.
+		- For intra-function proxies, the replicas themselves need to connect with the leader so they can just share the keys using cloud events without going through the `IKR`. But how do they discover the leader proxy itself?
+- Design Three
+	- Why even need a proxy re-encryption scheme? 
+	- If using attestation can't we simply use function's measurement (attestation - code and data running in the enclave) to verify that the request came from a particular function in the chain? -> if this is the case then how do I encrypt the message to this "floating" (headless/abstract/ephemeral) measurement of function
+	- ==is there an abstract measurement for replicas of the functions that is both secret (known to only the replicas) and the same for all the replicas?==
+- Design Four
+	- What about an headless (ephemeral) leader that never goes down? Not really a complete/working function, only a key pair inside enclave (replying to re-encryption requests) will work. --> Unrealistic as the basic assumption in cloud native is everything can and will fail. 

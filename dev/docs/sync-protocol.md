@@ -1,0 +1,50 @@
+- `Setup`
+	- leader function
+		- get elected as a leader
+		- create and register public params to: `leaders/<function-revision>/publicParams`
+		- create and register public key to: `leaders/<function-revision>/publicKey`
+	- member function
+		- become a member
+		- once it know it isn't the leader 
+			- wait for leader's public params from: `leaders/<function-revision>/publicParams`
+			- create its key pair and register its public key to: `members/<function-revision>/<leader-pod-id>/<pod-id>/publicKey`
+- --
+- `Leader Re-election`
+	- leader
+		- create your own public params and update the leader's public params for your function: `leaders/<function-revision>/publicParams`
+		- create and register public key to: `leaders/<function-revision>/publicKey`
+	- member
+		- get the new leader's public params from: `leaders/<function-revision>/publicParams`
+		- create new key pair and register its public key to: `members/<function-revision>/<leader-pod-id>/<pod-id>/publicKey
+	- re-encryption key generation
+		- watch for registered public keys `members/<function-revision>/<leader-pod-id>/*/publicKey`
+---
+- `ReEncryption Key Generation`
+	- leader
+		- watch the key prefix: `members/<function-revision>/<leader-pod-id>/*/publicKey`
+		- for every new `publicKey` create a re-encryption key (allowing member function to re-encrypt the ciphertext meant for leader to itself)
+		- register the re-encryption key for the member to: `members/<function-revision>/<leader-pod-id>/*/reEncryptionKey`
+	- member
+		- watch the key prefix: `members/<function-revision>/<leader-pod-id>/<pod-id>/reEncryptionKey`
+---
+- What does a function needs to encrypt message?
+	- the actual message
+	- the next function the message is meant for (ie. receiver's `<function-revision>`)
+	- public key of receiver's leader function: `leaders/<function-revision>/publicKey`
+- What does a function need to decrypt incoming message?
+	- the actual message
+	- the re-encryption key: `members/<function-revision>/<leader-pod-id>/<pod-id>/reEncryptionKey`
+	- it's own `pre-` private key to decrypt the re-encrypted message
+- other functions in the cluster only need watch for public keys of leader functions: `leaders/*/publicKey`
+---
+- Data Structures 
+	- leader? 
+	- member
+		- For encryption: 
+			- only needs the leader public keys
+			- `map[functionRevision][]*pre.PublicKey`
+			- to handle re-election: always use the most recent public key
+		- For decryption: 
+			- needs the re-encryption key
+			- `map[functionRevision][]{LeaderId string, ReEncryptionKey *pre.ReEncryptionKey}`
+			- to handle re-election: use the previous re-encryption keys if decryption fails
