@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -37,8 +38,12 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/leaderelection"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"knative.dev/networking/pkg/certificates"
 	netstats "knative.dev/networking/pkg/http/stats"
+	kubeclient "knative.dev/pkg/client/injection/kube/client"
 	pkglogging "knative.dev/pkg/logging"
 	"knative.dev/pkg/logging/logkey"
 	"knative.dev/pkg/metrics"
@@ -55,6 +60,7 @@ import (
 	"knative.dev/serving/pkg/queue/readiness"
 
 	"github.com/etclab/pre"
+	injection "knative.dev/pkg/injection"
 )
 
 const (
@@ -173,6 +179,92 @@ func init() {
 	maxprocs.Set()
 }
 
+// tries to acquire a lease for this function revision
+// once a lease is acquired this queue-proxy acts as the leader
+// and will create new public params for proxy re-encryption
+// all the other replicas will use the leader's public params
+// all the other replicas will depend on the leader for re-encryption key
+// other functions encrypting to this revision (function) must use the
+// leader's public key for encryption
+// src: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
+func TryAcquireLease(d *Defaults, leader chan string) {
+	var startedLeading atomic.Bool
+
+	logDev := logWithPrefix("dev - TryAcquireLease")
+
+	ctx, _ := injection.EnableInjectionOrDie(context.Background(), nil)
+
+	// this is pod name
+	id := d.Env.ServingPod
+	leaseLockName := d.Env.ServingRevision
+	leaseLockNamespace := d.Env.ServingNamespace
+	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, id)
+
+	// we use the Lease lock type since edits to Leases are less common
+	// and fewer objects in the cluster watch "all Leases".
+	lock := &resourcelock.LeaseLock{
+		LeaseMeta: metav1.ObjectMeta{
+			Name:      leaseLockName,
+			Namespace: leaseLockNamespace,
+		},
+		Client: kubeclient.Get(ctx).CoordinationV1(),
+		LockConfig: resourcelock.ResourceLockConfig{
+			Identity: id,
+		},
+	}
+
+	// start the leader election code loop
+	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
+		Lock: lock,
+		// IMPORTANT: you MUST ensure that any code you have that
+		// is protected by the lease must terminate **before**
+		// you call cancel. Otherwise, you could have a background
+		// loop still running and another process could
+		// get elected before your background loop finished, violating
+		// the stated goal of the lease.
+		ReleaseOnCancel: true,
+		LeaseDuration:   15 * time.Second,
+		RenewDeadline:   10 * time.Second,
+		RetryPeriod:     2 * time.Second,
+		Callbacks: leaderelection.LeaderCallbacks{
+			OnStartedLeading: func(ctx context.Context) {
+				// we're notified when we start - this is where you would
+				// usually put your code
+				startedLeading.Store(true)
+				leader <- id
+			},
+			OnStoppedLeading: func() {
+				// we can do cleanup here, but note that this callback is always called
+				// when the LeaderElector exits, even if it did not start leading.
+				// Therefore, we should check if we actually started leading before
+				// performing any cleanup operations to avoid unexpected behavior.
+				logDev("leader lost: %s", id)
+
+				// Example check to ensure we only perform cleanup if we actually started leading
+				if startedLeading.Load() {
+					// Perform cleanup operations here
+					// For example, releasing resources, closing connections, etc.
+					logDev("Performing cleanup operations...")
+				} else {
+					logDev("No cleanup needed as we never started leading.")
+				}
+				// TODO: think about if we need to exit here
+				os.Exit(0)
+				// return
+			},
+			OnNewLeader: func(identity string) {
+				// we're notified when new leader elected
+				if identity == id {
+					// I just got the lock
+					return
+				}
+				logDev("new leader elected: %s", identity)
+				leader <- identity
+			},
+		},
+	})
+}
+
 func Main(opts ...Option) error {
 	d := Defaults{
 		Ctx: signals.NewContext(),
@@ -192,7 +284,8 @@ func Main(opts ...Option) error {
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
 	defer flush(logger)
 
-	logger.Infof("[dev] d.Env = %+v", d.Env)
+	logDev := logWithPrefix("dev - Main")
+	logDev("d.Env = %+v", d.Env)
 
 	logger = logger.Named("queueproxy").With(
 		zap.String(logkey.Key, types.NamespacedName{
@@ -289,6 +382,20 @@ func Main(opts ...Option) error {
 
 		// Drop admin http server since the admin TLS server is listening on the same port
 		delete(httpServers, "admin")
+	}
+
+	// before queue-proxy starts listening for requests
+	leader := make(chan string)
+	go TryAcquireLease(&d, leader)
+
+	id := d.Env.ServingPod
+	leaseResult := <-leader
+	isLeader := leaseResult == id
+
+	if isLeader {
+		logDev("I'm the leader queue-proxy: %s", id)
+	} else {
+		logDev("I'm not the leader queue-proxy: %s, leader is: %s", id, leaseResult)
 	}
 
 	logger.Info("Starting queue-proxy")
