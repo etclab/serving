@@ -4,6 +4,9 @@ metadata:
   name: first
 spec:
   template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "3" # at least 3 replicas of first
     spec:
       containers:
         - image: gcr.io/knative-releases/knative.dev/eventing/cmd/appender
