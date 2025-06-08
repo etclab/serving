@@ -15,7 +15,7 @@
 		- create and register public key to: `leaders/<function-revision>/publicKey`
 	- member
 		- get the new leader's public params from: `leaders/<function-revision>/publicParams`
-		- create new key pair and register its public key to: `members/<function-revision>/<leader-pod-id>/<pod-id>/publicKey
+		- create new key pair and register its public key to: `members/<function-revision>/<leader-pod-id>/<pod-id>/publicKey`
 	- re-encryption key generation
 		- watch for registered public keys `members/<function-revision>/<leader-pod-id>/*/publicKey`
 ---
