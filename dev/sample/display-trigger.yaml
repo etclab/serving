@@ -14,9 +14,9 @@ metadata:
   name: display-trigger
 spec:
   broker: broker
-  filter:
-    attributes:
-      type: samples.http.mod3
+  # filter:
+  #   attributes:
+  #     type: samples.http.mod3
   subscriber:
     ref:
       apiVersion: serving.knative.dev/v1
