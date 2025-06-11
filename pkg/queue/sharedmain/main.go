@@ -23,17 +23,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
 	"go.opencensus.io/plugin/ochttp"
 	"go.uber.org/automaxprocs/maxprocs"
 	"go.uber.org/zap"
+	"knative.dev/serving/pkg/kregistry"
+	"knative.dev/serving/pkg/mutil"
 	"knative.dev/serving/pkg/queue/certificate"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -171,6 +175,9 @@ type Defaults struct {
 
 	// holds proxy re-encryption related values
 	PreContext *PreContext
+
+	// etcd key registry
+	KeyRegistry *kregistry.KeyRegistry
 }
 
 type Option func(*Defaults)
@@ -190,9 +197,11 @@ func init() {
 func TryAcquireLease(d *Defaults, leader chan string) {
 	var startedLeading atomic.Bool
 
-	logDev := logWithPrefix("dev - TryAcquireLease")
+	logDev := mutil.LogWithPrefix("dev - TryAcquireLease")
 
-	ctx, _ := injection.EnableInjectionOrDie(context.Background(), nil)
+	bgCtx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+	ctx, _ := injection.EnableInjectionOrDie(bgCtx, nil)
 
 	// this is pod name
 	id := d.Env.ServingPod
@@ -249,6 +258,8 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 					logDev("No cleanup needed as we never started leading.")
 				}
 				// TODO: think about if we need to exit here
+				// TODO: why did I exit here? I don't think exiting here is a good idea
+				// TODO: something is definitely wrong here
 				os.Exit(0)
 				// return
 			},
@@ -263,6 +274,22 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 			},
 		},
 	})
+}
+
+func initEtcdWithRetry(d *Defaults) {
+	logDev := mutil.LogWithPrefix("dev - initEtcdWithRetry")
+
+	ch := make(chan *kregistry.KeyRegistry)
+	kregistry.InitEtcdWithRetry(ch)
+
+	registry, ok := <-ch
+	if !ok {
+		d.KeyRegistry = nil
+		logDev("Couldn't connect to KeyRegistry")
+	} else {
+		d.KeyRegistry = registry
+		logDev("Connected to KeyRegistry: %s", d.KeyRegistry.Client().Endpoints())
+	}
 }
 
 func Main(opts ...Option) error {
@@ -284,8 +311,11 @@ func Main(opts ...Option) error {
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
 	defer flush(logger)
 
-	logDev := logWithPrefix("dev - Main")
+	logDev := mutil.LogWithPrefix("dev - Main")
 	logDev("d.Env = %+v", d.Env)
+
+	// connect to etcd
+	go initEtcdWithRetry(&d)
 
 	logger = logger.Named("queueproxy").With(
 		zap.String(logkey.Key, types.NamespacedName{
@@ -523,7 +553,7 @@ type DebugTransport struct {
 
 // encrypts the response received from user-container
 func EncryptResponseBody(resp *http.Response) error {
-	logDev := logWithPrefix("dev - ModifyResponse")
+	logDev := mutil.LogWithPrefix("dev - ModifyResponse")
 
 	logDev("Response: %s %s %d\n", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode)
 	for name, values := range resp.Header {
@@ -554,12 +584,6 @@ func EncryptResponseBody(resp *http.Response) error {
 	return nil
 }
 
-func logWithPrefix(prefix string) func(format string, v ...interface{}) {
-	return func(format string, v ...interface{}) {
-		log.Printf("["+prefix+"] "+format, v...)
-	}
-}
-
 // placeholder encryption
 func Encrypt(plaintext []byte) ([]byte, error) {
 	return bytes.ToUpper(plaintext), nil
@@ -571,7 +595,7 @@ func Decrypt(encBody []byte) ([]byte, error) {
 }
 
 func (t *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	logDev := logWithPrefix("dev - RoundTrip")
+	logDev := mutil.LogWithPrefix("dev - RoundTrip")
 
 	logDev("Request: %s %s\n", req.Method, req.URL.String())
 	for name, values := range req.Header {
