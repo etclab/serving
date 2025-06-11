@@ -1,4 +1,4 @@
-package pre
+package samba
 
 import (
 	bls "github.com/cloudflare/circl/ecc/bls12381"

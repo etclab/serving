@@ -205,7 +205,7 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 
 	// this is pod name
 	id := d.Env.ServingPod
-	leaseLockName := d.Env.ServingRevision
+	leaseLockName := d.Env.ServingRevision // lease lock name is the function revision name
 	leaseLockNamespace := d.Env.ServingNamespace
 	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, id)
 
@@ -240,7 +240,30 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				// we're notified when we start - this is where you would
 				// usually put your code
 				startedLeading.Store(true)
-				leader <- id
+				// leader <- id
+
+				pp := pre.NewPublicParams()
+				d.PreContext.lPublicParams = pp
+				d.PreContext.lKeyPair = pre.KeyGen(pp)
+
+				// TODO: better way to create key labels
+				lPublicParamsLabel := "leaders/" + d.PreContext.FunctionId + "/publicParams"
+				lPublicKeyLabel := "leaders/" + d.PreContext.FunctionId + "/publicKey"
+
+				logDev("Store public params with label: %s", lPublicParamsLabel)
+				logDev("Store public key with label: %s", lPublicKeyLabel)
+
+				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, d.PreContext.lKeyPair.PK)
+				if err != nil {
+					// TODO: log the error and maybe retry later
+					logDev("Error storing public key in KeyRegistry: %v", err)
+				}
+
+				err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, d.PreContext.lPublicParams)
+				if err != nil {
+					// TODO: log the error and maybe retry later
+					logDev("Error storing public params in KeyRegistry: %v", err)
+				}
 			},
 			OnStoppedLeading: func() {
 				// we can do cleanup here, but note that this callback is always called
@@ -277,19 +300,8 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 }
 
 func initEtcdWithRetry(d *Defaults) {
-	logDev := mutil.LogWithPrefix("dev - initEtcdWithRetry")
-
-	ch := make(chan *kregistry.KeyRegistry)
-	kregistry.InitEtcdWithRetry(ch)
-
-	registry, ok := <-ch
-	if !ok {
-		d.KeyRegistry = nil
-		logDev("Couldn't connect to KeyRegistry")
-	} else {
-		d.KeyRegistry = registry
-		logDev("Connected to KeyRegistry: %s", d.KeyRegistry.Client().Endpoints())
-	}
+	d.KeyRegistry = new(kregistry.KeyRegistry)
+	d.KeyRegistry.InitEtcdWithRetry()
 }
 
 func Main(opts ...Option) error {
@@ -347,11 +359,6 @@ func Main(opts ...Option) error {
 	for _, opts := range opts {
 		opts(&d)
 	}
-
-	logger.Infof("[dev] d.PreContext.FunctionId = %+v", d.PreContext.FunctionId)
-	logger.Infof("[dev] d.PreContext.InstanceId = %+v", d.PreContext.InstanceId)
-	logger.Infof("[dev] d.PreContext.PublicParams = %+v", d.PreContext.PublicParams)
-	logger.Infof("[dev] d.PreContext.KeyPair = %+v", d.PreContext.KeyPair)
 
 	// Report stats on Go memory usage every 30 seconds.
 	metrics.MemStatsOrDie(d.Ctx)
@@ -418,15 +425,16 @@ func Main(opts ...Option) error {
 	leader := make(chan string)
 	go TryAcquireLease(&d, leader)
 
-	id := d.Env.ServingPod
-	leaseResult := <-leader
-	isLeader := leaseResult == id
+	// podId := d.Env.ServingPod
+	// wait for the leader to be elected
+	// <-leader
+	// isLeader := leaseResult == podId
 
-	if isLeader {
-		logDev("I'm the leader queue-proxy: %s", id)
-	} else {
-		logDev("I'm not the leader queue-proxy: %s, leader is: %s", id, leaseResult)
-	}
+	// if isLeader {
+	// 	logDev("I'm the leader queue-proxy: %s", podId)
+	// } else {
+	// 	logDev("I'm not the leader queue-proxy: %s, leader is: %s", podId, leaseResult)
+	// }
 
 	logger.Info("Starting queue-proxy")
 
@@ -504,25 +512,17 @@ type PreContext struct {
 	KeyPair      *pre.KeyPair
 	PublicParams *pre.PublicParams
 	// Crypto       SambaCrypto
+
+	lPublicParams *pre.PublicParams
+	lKeyPair      *pre.KeyPair
 }
 
 // initialize proxy re-encryption values
 func InitProxyReEncryption() Option {
 	return func(d *Defaults) {
-		// if this is the leader queue-proxy we create new public params
-		// Q: how do I know if I'm the leader?
-		// if this is not the leader queue-proxy, somehow fetch the existing public params
-		// Q: how do I get the existing public params from the leader?
-		// Q: how do I verify I'm talking to the leader?
-		pp := pre.NewPublicParams()
-
-		keyPair := pre.KeyGen(pp)
-
 		d.PreContext = &PreContext{
-			KeyPair:      keyPair,
-			PublicParams: pp,
-			InstanceId:   d.Env.ServingPodIP,
-			FunctionId:   d.Env.ServingRevision,
+			InstanceId: d.Env.ServingPodIP,
+			FunctionId: d.Env.ServingRevision,
 		}
 	}
 }

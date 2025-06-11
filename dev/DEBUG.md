@@ -1,0 +1,3 @@
+- How to view the key-value being stored in etcd
+    - `etcd-0` pod doesn't include bash or sh but includes the `etcdctl` client, so
+    - Use `kubectl exec -it -n knative-serving etcd-0 -- etcdctl get "" --prefix --keys-only` to display the current keys
