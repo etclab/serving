@@ -18,20 +18,19 @@ type KeyRegistry struct {
 }
 
 func (kr *KeyRegistry) Client() *clientv3.Client {
+	// this channel is closed as soon as the etcd client is ready
+	// and therefore will unblock immediately for any subsequent calls
+	<-kr.IsEtcdReady
 	return kr.client
 }
 
 func (kr *KeyRegistry) StoreKV(key string, value string) error {
 	logDev := mutil.LogWithPrefix("dev - StoreKV")
 
-	if kr.client == nil {
-		return fmt.Errorf("etcd client is not initialized, cannot store key %v", key)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := kr.client.Put(ctx, key, value)
+	_, err := kr.Client().Put(ctx, key, value)
 	if err != nil {
 		return fmt.Errorf("failed to store key: %s in etcd: %v", key, err)
 	}
@@ -78,6 +77,7 @@ func (kr *KeyRegistry) InitEtcdWithRetry() {
 		if err == nil {
 			logDev("Successfully connected to etcd after %d attempts", attempts)
 			kr.client = client
+			close(kr.IsEtcdReady) // Signal that etcd is ready
 			return
 		}
 
