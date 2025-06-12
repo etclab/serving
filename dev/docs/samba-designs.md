@@ -10,7 +10,7 @@
 		- public re-encryption keys
 			- since re-encryption keys are public, what happens if an attacker takes control of a pod?
 				- They can trivially read their own message with the pod's secret key
-				- Even though re-encryption keys are public they cannot read messages destined for other pods. Assuming protection provided by enclaves hold, an attacker cannot leak other pod's secret key.
+				- Even though re-encryption keys are public they cannot read messages destined for other functions. Assuming protection provided by enclaves hold, an attacker cannot leak other pod's secret key.
 				- **However, the attacker can read a message destined to a different replica of the same function. So, if the attacker intercepts the message, they can read it, change it and then re-encrypt it to the next function's public key.**
 	- pros 
 		- `etcd` helps scale discovery of leader's `publicKey` and `publicParams` for members (replicas)
