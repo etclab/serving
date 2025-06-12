@@ -236,10 +236,12 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 		RetryPeriod:     2 * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				// we're notified when we start - this is where you would
-				// usually put your code
+				// we're notified when we start leading
 				startedLeading.Store(true)
-				// leader <- id
+
+				// watch for member's public keys at prefix: members/<leader-pod-id>/publicKey/
+				memberPublicKeyDir := "members/" + id + "/publicKey"
+				go d.KeyRegistry.WatchMemberPublicKeys(memberPublicKeyDir, id)
 
 				pp := pre.NewPublicParams()
 				d.KeyRegistry.LeaPublicParams = pp
@@ -248,9 +250,6 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				// TODO: better way to create key labels
 				lPublicParamsLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicParams"
 				lPublicKeyLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicKey"
-
-				logDev("Store public params with label: %s", lPublicParamsLabel)
-				logDev("Store public key with label: %s", lPublicKeyLabel)
 
 				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, d.KeyRegistry.LeaKeyPair.PK)
 				if err != nil {
@@ -263,9 +262,6 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 					// TODO: log the error and maybe retry later
 					logDev("Error storing public params in KeyRegistry: %v", err)
 				}
-
-				// TODO: once successfully saved the new public keys/params
-				// start watching for the member public keys
 			},
 			OnStoppedLeading: func() {
 				// we can do cleanup here, but note that this callback is always called

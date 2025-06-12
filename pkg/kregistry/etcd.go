@@ -39,8 +39,10 @@ type KeyRegistry struct {
 	// Crypto       SambaCrypto
 
 	// state when queue-proxy is a leader
-	LeaPublicParams *pre.PublicParams
-	LeaKeyPair      *pre.KeyPair
+	LeaPublicParams        *pre.PublicParams
+	LeaKeyPair             *pre.KeyPair
+	LeaMemPublicKeys       map[string]*pre.PublicKey
+	LeaMemReEncryptionKeys map[string]*pre.ReEncryptionKey
 
 	// state when queue-proxy is a member
 	// TODO: I think the best way to store these values is to mimic the
@@ -78,6 +80,18 @@ func (kr *KeyRegistry) StorePublicKey(key string, publicKey *pre.PublicKey) erro
 	pks.Serialize(publicKey)
 
 	jsonData, err := json.Marshal(pks)
+	if err != nil {
+		return fmt.Errorf("error marshaling public key message: %v", err)
+	}
+
+	return kr.StoreKV(key, string(jsonData))
+}
+
+func (kr *KeyRegistry) StoreReEncryptionKey(key string, reEncryptionKey *pre.ReEncryptionKey) error {
+	rks := new(samba.ReEncryptionKeySerialized)
+	rks.Serialize(reEncryptionKey)
+
+	jsonData, err := json.Marshal(rks)
 	if err != nil {
 		return fmt.Errorf("error marshaling public key message: %v", err)
 	}
@@ -158,10 +172,97 @@ func tryConnectToEtcd() (*clientv3.Client, error) {
 // watchReEncryptionKeys - member watches this for re-encryption keys from the leader
 // TODO: how do I cancel this watch? after leader re-election
 
+// leader watches for public keys from members under directory
+// "members/<leader-pod-id>/publicKey/*"
+func (kr *KeyRegistry) WatchMemberPublicKeys(memberPublicKeyDir, leaderPodId string) {
+	logDev := mutil.LogWithPrefix("dev - WatchMemberPublicKeys")
+
+	rch := kr.Client().Watch(context.Background(), memberPublicKeyDir, clientv3.WithPrefix())
+	logDev("Watching etcd keys with prefix: %s", memberPublicKeyDir)
+	for wresp := range rch {
+		if wresp.Canceled {
+			logDev("etcd watch canceled: %v", wresp.Err())
+			return
+		}
+
+		logDev("etcd watch response: %+v", wresp)
+		for _, ev := range wresp.Events {
+			logDev("type: %s, key: %q\n", ev.Type, ev.Kv.Key)
+
+			if ev.Type == clientv3.EventTypePut {
+				key := string(ev.Kv.Key)
+				value := ev.Kv.Value
+
+				logDev("Received PUT event for key: %s, value: %s", key, value)
+				keyStr := string(key)
+
+				err := kr.HandleMemberPublicKey(keyStr, leaderPodId, value)
+				if err != nil {
+					logDev("Failed to save member public key: %v", err)
+					continue
+				}
+			}
+		}
+	}
+}
+
+// get the public key of a member from etcd
+// create the re-encryption key for the member
+// store the re-encryption key in etcd
+func (kr *KeyRegistry) HandleMemberPublicKey(keyStr, leaderPodId string, value []byte) error {
+	logDev := mutil.LogWithPrefix("dev - HandleMemberPublicKey")
+
+	pks := new(samba.PublicKeySerialized)
+	err := json.NewDecoder(bytes.NewReader(value)).Decode(pks)
+	if err != nil {
+		return fmt.Errorf("failed to decode public key: %v", err)
+	}
+
+	publicKey, err := pks.DeSerialize()
+	if err != nil {
+		return fmt.Errorf("failed to deserialize public key: %v", err)
+	}
+
+	memberPodId := ""
+	// keyStr is of the form "members/<leader-pod-id>/publicKey/<member-pod-id>"
+	parts := strings.Split(keyStr, "/")
+	memberPodId = strings.TrimSpace(parts[len(parts)-1])
+
+	if memberPodId != "" {
+		lmMap := kr.LeaMemPublicKeys
+		if lmMap == nil {
+			lmMap = make(map[string]*pre.PublicKey)
+		}
+		lmMap[memberPodId] = publicKey
+		logDev("Got public key for member %s", memberPodId)
+
+		// create a re-encryption key for the member
+		reEncryptionKey := pre.ReEncryptionKeyGen(kr.LeaPublicParams, kr.LeaKeyPair.SK, publicKey)
+		rKeyMap := kr.LeaMemReEncryptionKeys
+		if rKeyMap == nil {
+			rKeyMap = make(map[string]*pre.ReEncryptionKey)
+		}
+		rKeyMap[memberPodId] = reEncryptionKey
+		logDev("Created re-encryption key for member %s", memberPodId)
+
+		// member's re-encryption key is stored under
+		// members/<leader-pod-id>/reEncryptionKey/<member-pod-id>
+		memReEncKeyLabel := "members/" + leaderPodId + "/reEncryptionKey/" + memberPodId
+		err = kr.StoreReEncryptionKey(memReEncKeyLabel, reEncryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to store member re-encryption key: %v", err)
+		}
+	} else {
+		return fmt.Errorf("member pod ID not found in key: %s", keyStr)
+	}
+
+	return nil
+}
+
 // a member function needs to watch for public params and public keys from the leader
 // keyPrefix is "leaders/<function-revision>/public"
-func (kr *KeyRegistry) WatchLeaderKeys(keyPrefix, identity string) {
-	logDev := mutil.LogWithPrefix("dev - watchLeaderKeys")
+func (kr *KeyRegistry) WatchLeaderKeys(keyPrefix, leaderPodId string) {
+	logDev := mutil.LogWithPrefix("dev - WatchLeaderKeys")
 
 	rch := kr.Client().Watch(context.Background(), keyPrefix, clientv3.WithPrefix())
 	logDev("Watching etcd keys with prefix: %s", keyPrefix)
@@ -182,7 +283,7 @@ func (kr *KeyRegistry) WatchLeaderKeys(keyPrefix, identity string) {
 				logDev("Received PUT event for key: %s, value: %s", key, value)
 				keyStr := string(key)
 
-				err := kr.GetLeaderKeys(keyStr, identity, value)
+				err := kr.HandleLeaderKeys(keyStr, leaderPodId, value)
 				if err != nil {
 					logDev("Failed to save leader public keys: %v", err)
 					continue
@@ -192,7 +293,7 @@ func (kr *KeyRegistry) WatchLeaderKeys(keyPrefix, identity string) {
 	}
 }
 
-func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, identity string) {
+func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, leaderPodId string) {
 	logDev := mutil.LogWithPrefix("dev - FetchExistingLeaderKeys")
 
 	getRes, err := kr.Client().Get(context.Background(), keyPrefix, clientv3.WithPrefix())
@@ -209,7 +310,7 @@ func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, identity string) {
 		logDev("Received key: %s, value: %s", key, value)
 		keyStr := string(key)
 
-		err := kr.GetLeaderKeys(keyStr, identity, value)
+		err := kr.HandleLeaderKeys(keyStr, leaderPodId, value)
 		if err != nil {
 			logDev("Failed to save leader public keys: %v", err)
 			continue
@@ -217,8 +318,11 @@ func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, identity string) {
 	}
 }
 
-func (kr *KeyRegistry) GetLeaderKeys(keyStr, identity string, value []byte) error {
-	logDev := mutil.LogWithPrefix("dev - GetLeaderKeys")
+// save the leader's pk,pp to local state
+// generate new key pair for the member using pp
+// send the member's public key to etcd
+func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte) error {
+	logDev := mutil.LogWithPrefix("dev - HandleLeaderKeys")
 
 	if strings.HasSuffix(keyStr, "publicKey") {
 		pks := new(samba.PublicKeySerialized)
@@ -236,8 +340,8 @@ func (kr *KeyRegistry) GetLeaderKeys(keyStr, identity string, value []byte) erro
 		if pkMap == nil {
 			pkMap = make(map[string]*pre.PublicKey)
 		}
-		pkMap[identity] = publicKey
-		logDev("Got public key for leader %s", identity)
+		pkMap[leaderPodId] = publicKey
+		logDev("Got public key for leader %s", leaderPodId)
 		return nil
 	}
 
@@ -257,18 +361,18 @@ func (kr *KeyRegistry) GetLeaderKeys(keyStr, identity string, value []byte) erro
 		if ppMap == nil {
 			ppMap = make(map[string]*pre.PublicParams)
 		}
-		ppMap[identity] = publicParams
-		logDev("Got public params for leader %s", identity)
+		ppMap[leaderPodId] = publicParams
+		logDev("Got public params for leader %s", leaderPodId)
 
 		kr.MemKeyPair = pre.KeyGen(publicParams)
 		logDev("Created key pair for member %s", kr.PodId)
 
 		// a member stores their public key under a specific label
-		// members/<leader-pod-id>/<member-pod-id>/publicKey
-		memPubKeyLabel := "members/" + identity + "/" + kr.PodId + "/publicKey"
+		// members/<leader-pod-id>/publicKey/<member-pod-id>
+		memPubKeyLabel := "members/" + leaderPodId + "/publicKey/" + kr.PodId
 		err = kr.StorePublicKey(memPubKeyLabel, kr.MemKeyPair.PK)
 		if err != nil {
-			logDev("Failed to store member public key: %v", err)
+			return fmt.Errorf("failed to store member public key: %v", err)
 		}
 
 		return nil
