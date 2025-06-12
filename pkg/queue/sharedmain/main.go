@@ -241,10 +241,9 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnStartedLeading")
 
-				// FIXME: this should be setup before members reply with their public keys
 				// watch for member's public keys at prefix: members/<leader-pod-id>/publicKey/
 				memberPublicKeyDir := "members/" + myId + "/publicKey"
-				go d.KeyRegistry.WatchMemberPublicKeys(memberPublicKeyDir, myId)
+				go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
 
 				pp := pre.NewPublicParams()
 				d.KeyRegistry.LeaPublicParams = pp
@@ -301,11 +300,10 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				}
 				logDev("new leader elected: %s", leaderIdentity)
 
-				// FIXME: make sure you start watching before anything else
 				// watch for re-encryption keys at exact prefix:
 				// members/<leader-pod-id>/reEncryptionKey/<my-pod-id>
 				reEncKeyDir := "members/" + leaderIdentity + "/reEncryptionKey/" + myId
-				go d.KeyRegistry.WatchReEncryptionKey(reEncKeyDir, leaderIdentity)
+				go d.KeyRegistry.ListWatchReEncryptionKey(reEncKeyDir, leaderIdentity)
 
 				// NOTE: identity right now is pod id and revision name can be
 				// parsed from it but it might not be the case everytime
@@ -318,14 +316,9 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 
 				d.KeyRegistry.MemLeaderIds = append(d.KeyRegistry.MemLeaderIds, leaderIdentity)
 
-				// FIXME: use the snapshot + watch pattern
-				// FIXME: both functions update the same variables, using data from
-				// different apis, and via two goroutines == race condition?
-				// -> maybe look at time of the last update and use the latest one
-				// and instead use a single channel to update the data
-				go d.KeyRegistry.WatchLeaderKeys(leaderPublicPrefix, leaderIdentity)
-				// if keys were created before the watch is established
-				go d.KeyRegistry.FetchExistingLeaderKeys(leaderPublicPrefix, leaderIdentity)
+				// implements the List & Watch pattern
+				// https://www.mgasch.com/2021/01/listwatch-part-1/#the-list--watch-pattern
+				go d.KeyRegistry.ListWatchLeaderKeys(leaderPublicPrefix, leaderIdentity)
 			},
 		},
 	})

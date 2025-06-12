@@ -175,11 +175,17 @@ func tryConnectToEtcd() (*clientv3.Client, error) {
 
 // member watches for re-encryption key from leaders under file
 // "members/<leader-pod-id>/reEncryptionKeys/<member-pod-id>"
-func (kr *KeyRegistry) WatchReEncryptionKey(reEncKeyDir, leaderPodId string) {
-	logDev := mutil.LogWithPrefix("dev - WatchReEncryptionKey")
+func (kr *KeyRegistry) ListWatchReEncryptionKey(reEncKeyDir, leaderPodId string) {
+	logDev := mutil.LogWithPrefix("dev - ListWatchReEncryptionKey")
 
-	rch := kr.Client().Watch(context.Background(), reEncKeyDir)
-	logDev("Watching etcd key: %s", reEncKeyDir)
+	currentRevision := kr.FetchExistingReEncryptionKeys(reEncKeyDir, leaderPodId)
+	if currentRevision < 0 {
+		logDev("Failed to fetch existing re-encryption keys, cannot start watch")
+		return
+	}
+
+	rch := kr.Client().Watch(context.Background(), reEncKeyDir, clientv3.WithRev(currentRevision+1))
+	logDev("Watching etcd key: %s, rev: %d", reEncKeyDir, currentRevision+1)
 	for wresp := range rch {
 		if wresp.Canceled {
 			logDev("etcd watch canceled: %v", wresp.Err())
@@ -207,13 +213,78 @@ func (kr *KeyRegistry) WatchReEncryptionKey(reEncKeyDir, leaderPodId string) {
 	}
 }
 
+// return the current revision
+func (kr *KeyRegistry) FetchExistingReEncryptionKeys(reEncKeyDir, leaderPodId string) int64 {
+	logDev := mutil.LogWithPrefix("dev - FetchExistingReEncryptionKeys")
+
+	reEncKeyRes, err := kr.Client().Get(context.Background(), reEncKeyDir)
+	if err != nil {
+		logDev("failed to fetch existing re-encryption keys from etcd: %v", err)
+		return -1
+	}
+
+	logDev("fetched %d existing re-encryption keys from etcd", len(reEncKeyRes.Kvs))
+	for _, kv := range reEncKeyRes.Kvs {
+		value := kv.Value
+		key := kv.Key
+
+		logDev("Received key: %s, value: %s", key, value)
+		keyStr := string(key)
+
+		err := kr.HandleMemberReEncryptionKey(keyStr, leaderPodId, value)
+		if err != nil {
+			logDev("Failed to save member re-encryption keys: %v", err)
+			continue
+		}
+	}
+
+	logDev("current revision is %d", reEncKeyRes.Header.Revision)
+	return reEncKeyRes.Header.Revision
+}
+
+// fetch existing member public keys from etcd and return the current revision
+func (kr *KeyRegistry) FetchExistingMemberPublicKeys(memberPublicKeyDir, leaderPodId string) int64 {
+	logDev := mutil.LogWithPrefix("dev - FetchExistingMemberPublicKeys")
+
+	pubKeys, err := kr.Client().Get(context.Background(), memberPublicKeyDir, clientv3.WithPrefix())
+	if err != nil {
+		logDev("failed to fetch existing member public keys from etcd: %v", err)
+		return -1
+	}
+
+	logDev("fetched %d public keys from etcd", len(pubKeys.Kvs))
+	for _, kv := range pubKeys.Kvs {
+		value := kv.Value
+		key := kv.Key
+
+		logDev("Received key: %s, value: %s", key, value)
+		keyStr := string(key)
+
+		err := kr.HandleMemberPublicKey(keyStr, leaderPodId, value)
+		if err != nil {
+			logDev("Failed to save member public key: %v", err)
+			continue
+		}
+	}
+
+	logDev("current revision is %d", pubKeys.Header.Revision)
+	return pubKeys.Header.Revision
+}
+
 // leader watches for public keys from members under directory
 // "members/<leader-pod-id>/publicKey/*"
-func (kr *KeyRegistry) WatchMemberPublicKeys(memberPublicKeyDir, leaderPodId string) {
-	logDev := mutil.LogWithPrefix("dev - WatchMemberPublicKeys")
+func (kr *KeyRegistry) ListWatchMemberPublicKeys(memberPublicKeyDir, leaderPodId string) {
+	logDev := mutil.LogWithPrefix("dev - ListWatchMemberPublicKeys")
 
-	rch := kr.Client().Watch(context.Background(), memberPublicKeyDir, clientv3.WithPrefix())
-	logDev("Watching etcd keys with prefix: %s", memberPublicKeyDir)
+	currentRevision := kr.FetchExistingMemberPublicKeys(memberPublicKeyDir, leaderPodId)
+	if currentRevision < 0 {
+		logDev("Failed to fetch existing member public keys, cannot start watch")
+		return
+	}
+
+	// start watching for new member public keys from the next revision
+	rch := kr.Client().Watch(context.Background(), memberPublicKeyDir, clientv3.WithPrefix(), clientv3.WithRev(currentRevision+1))
+	logDev("Watching etcd keys with prefix: %s, rev: %d", memberPublicKeyDir, currentRevision+1)
 	for wresp := range rch {
 		if wresp.Canceled {
 			logDev("etcd watch canceled: %v", wresp.Err())
@@ -321,11 +392,17 @@ func (kr *KeyRegistry) HandleMemberPublicKey(keyStr, leaderPodId string, value [
 
 // a member function needs to watch for public params and public keys from the leader
 // keyPrefix is "leaders/<function-revision>/public"
-func (kr *KeyRegistry) WatchLeaderKeys(keyPrefix, leaderPodId string) {
-	logDev := mutil.LogWithPrefix("dev - WatchLeaderKeys")
+func (kr *KeyRegistry) ListWatchLeaderKeys(keyPrefix, leaderPodId string) {
+	logDev := mutil.LogWithPrefix("dev - ListWatchLeaderKeys")
 
-	rch := kr.Client().Watch(context.Background(), keyPrefix, clientv3.WithPrefix())
-	logDev("Watching etcd keys with prefix: %s", keyPrefix)
+	currentRevision := kr.FetchExistingLeaderKeys(keyPrefix, leaderPodId)
+	if currentRevision < 0 {
+		logDev("Failed to fetch existing leader keys, cannot start watch")
+		return
+	}
+
+	rch := kr.Client().Watch(context.Background(), keyPrefix, clientv3.WithPrefix(), clientv3.WithRev(currentRevision+1))
+	logDev("Watching etcd keys with prefix: %s, rev: %d", keyPrefix, currentRevision+1)
 	for wresp := range rch {
 		if wresp.Canceled {
 			logDev("etcd watch canceled: %v", wresp.Err())
@@ -353,13 +430,14 @@ func (kr *KeyRegistry) WatchLeaderKeys(keyPrefix, leaderPodId string) {
 	}
 }
 
-func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, leaderPodId string) {
+// return the current revision
+func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, leaderPodId string) int64 {
 	logDev := mutil.LogWithPrefix("dev - FetchExistingLeaderKeys")
 
 	getRes, err := kr.Client().Get(context.Background(), keyPrefix, clientv3.WithPrefix())
 	if err != nil {
 		logDev("failed to fetch existing leader's public keys from etcd: %v", err)
-		return
+		return -1
 	}
 
 	logDev("fetched %d existing public keys from etcd", len(getRes.Kvs))
@@ -376,6 +454,9 @@ func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, leaderPodId string) {
 			continue
 		}
 	}
+
+	logDev("current revision is %d", getRes.Header.Revision)
+	return getRes.Header.Revision
 }
 
 // save the leader's pk,pp to local state
