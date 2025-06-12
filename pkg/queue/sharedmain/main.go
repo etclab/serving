@@ -203,10 +203,10 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 	ctx, _ := injection.EnableInjectionOrDie(bgCtx, nil)
 
 	// this is pod name
-	id := d.Env.ServingPod
+	myId := d.Env.ServingPod
 	leaseLockName := d.Env.ServingRevision // lease lock name is the function revision name
 	leaseLockNamespace := d.Env.ServingNamespace
-	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, id)
+	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, myId)
 
 	// we use the Lease lock type since edits to Leases are less common
 	// and fewer objects in the cluster watch "all Leases".
@@ -217,7 +217,7 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 		},
 		Client: kubeclient.Get(ctx).CoordinationV1(),
 		LockConfig: resourcelock.ResourceLockConfig{
-			Identity: id,
+			Identity: myId,
 		},
 	}
 
@@ -239,9 +239,12 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				// we're notified when we start leading
 				startedLeading.Store(true)
 
+				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnStartedLeading")
+
+				// FIXME: this should be setup before members reply with their public keys
 				// watch for member's public keys at prefix: members/<leader-pod-id>/publicKey/
-				memberPublicKeyDir := "members/" + id + "/publicKey"
-				go d.KeyRegistry.WatchMemberPublicKeys(memberPublicKeyDir, id)
+				memberPublicKeyDir := "members/" + myId + "/publicKey"
+				go d.KeyRegistry.WatchMemberPublicKeys(memberPublicKeyDir, myId)
 
 				pp := pre.NewPublicParams()
 				d.KeyRegistry.LeaPublicParams = pp
@@ -268,7 +271,7 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				// when the LeaderElector exits, even if it did not start leading.
 				// Therefore, we should check if we actually started leading before
 				// performing any cleanup operations to avoid unexpected behavior.
-				logDev("leader lost: %s", id)
+				logDev("leader lost: %s", myId)
 
 				// Example check to ensure we only perform cleanup if we actually started leading
 				if startedLeading.Load() {
@@ -284,34 +287,45 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				os.Exit(0)
 				// return
 			},
-			OnNewLeader: func(identity string) {
+			OnNewLeader: func(leaderIdentity string) {
 				// we're notified when new leader elected
+				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnNewLeader")
+
 				// identity is pod id
-				if identity == id {
+				if leaderIdentity == myId {
 					// I just got the lock
-					// TODO: not sure what this'll be useful for at the moment
+					// the rest of the code in this callback is mainly for
+					// members, if I'm a leader, I can skip it
+					logDev("I am the new leader: %s", leaderIdentity)
 					return
 				}
-				logDev("new leader elected: %s", identity)
+				logDev("new leader elected: %s", leaderIdentity)
+
+				// FIXME: make sure you start watching before anything else
+				// watch for re-encryption keys at exact prefix:
+				// members/<leader-pod-id>/reEncryptionKey/<my-pod-id>
+				reEncKeyDir := "members/" + leaderIdentity + "/reEncryptionKey/" + myId
+				go d.KeyRegistry.WatchReEncryptionKey(reEncKeyDir, leaderIdentity)
 
 				// NOTE: identity right now is pod id and revision name can be
 				// parsed from it but it might not be the case everytime
 				// `identity` looks like this: first-00001-deployment-59567cdfc-jhqfb
 				// so anything before -deployment- is the function revision name
-				parts := strings.Split(identity, "-deployment-")
+				parts := strings.Split(leaderIdentity, "-deployment-")
 				leaderFunctionRevision := parts[0]
 
 				leaderPublicPrefix := "leaders/" + leaderFunctionRevision + "/public"
 
-				d.KeyRegistry.MemLeaderIds = append(d.KeyRegistry.MemLeaderIds, identity)
+				d.KeyRegistry.MemLeaderIds = append(d.KeyRegistry.MemLeaderIds, leaderIdentity)
 
+				// FIXME: use the snapshot + watch pattern
 				// FIXME: both functions update the same variables, using data from
 				// different apis, and via two goroutines == race condition?
 				// -> maybe look at time of the last update and use the latest one
 				// and instead use a single channel to update the data
-				go d.KeyRegistry.WatchLeaderKeys(leaderPublicPrefix, identity)
+				go d.KeyRegistry.WatchLeaderKeys(leaderPublicPrefix, leaderIdentity)
 				// if keys were created before the watch is established
-				go d.KeyRegistry.FetchExistingLeaderKeys(leaderPublicPrefix, identity)
+				go d.KeyRegistry.FetchExistingLeaderKeys(leaderPublicPrefix, leaderIdentity)
 			},
 		},
 	})

@@ -39,18 +39,22 @@ type KeyRegistry struct {
 	// Crypto       SambaCrypto
 
 	// state when queue-proxy is a leader
-	LeaPublicParams        *pre.PublicParams
-	LeaKeyPair             *pre.KeyPair
-	LeaMemPublicKeys       map[string]*pre.PublicKey
+	LeaPublicParams *pre.PublicParams
+	LeaKeyPair      *pre.KeyPair
+	// LeaMem* means the data for leader is received from the members
+	LeaMemPublicKeys map[string]*pre.PublicKey // key is member pod id
+	// leader generates re-encryption key using member public keys
 	LeaMemReEncryptionKeys map[string]*pre.ReEncryptionKey
 
 	// state when queue-proxy is a member
 	// TODO: I think the best way to store these values is to mimic the
 	// path (or folder) like structure in etcd using maps
-	MemKeyPair            *pre.KeyPair
-	MemLeaderIds          []string
-	MemLeaderPublicKey    map[string]*pre.PublicKey
-	MemLeaderPublicParams map[string]*pre.PublicParams
+	MemKeyPair *pre.KeyPair
+	// MemLeader* means the data for member is received from the leader
+	MemLeaderIds             []string
+	MemLeaderPublicKey       map[string]*pre.PublicKey // key is leader pod id
+	MemLeaderPublicParams    map[string]*pre.PublicParams
+	MemLeaderReEncryptionKey map[string]*pre.ReEncryptionKey
 }
 
 func (kr *KeyRegistry) Client() *clientv3.Client {
@@ -167,10 +171,41 @@ func tryConnectToEtcd() (*clientv3.Client, error) {
 	return etcdClient, nil
 }
 
-// other functions I imagine would be
-// watchMemberPublicKeys - leader watches this for public keys from members
-// watchReEncryptionKeys - member watches this for re-encryption keys from the leader
-// TODO: how do I cancel this watch? after leader re-election
+// TODO: how do I cancel etcd watch? after leader re-election
+
+// member watches for re-encryption key from leaders under file
+// "members/<leader-pod-id>/reEncryptionKeys/<member-pod-id>"
+func (kr *KeyRegistry) WatchReEncryptionKey(reEncKeyDir, leaderPodId string) {
+	logDev := mutil.LogWithPrefix("dev - WatchReEncryptionKey")
+
+	rch := kr.Client().Watch(context.Background(), reEncKeyDir)
+	logDev("Watching etcd key: %s", reEncKeyDir)
+	for wresp := range rch {
+		if wresp.Canceled {
+			logDev("etcd watch canceled: %v", wresp.Err())
+			return
+		}
+
+		logDev("etcd watch response: %+v", wresp)
+		for _, ev := range wresp.Events {
+			logDev("type: %s, key: %q\n", ev.Type, ev.Kv.Key)
+
+			if ev.Type == clientv3.EventTypePut {
+				key := string(ev.Kv.Key)
+				value := ev.Kv.Value
+
+				logDev("Received PUT event for key: %s, value: %s", key, value)
+				keyStr := string(key)
+
+				err := kr.HandleMemberReEncryptionKey(keyStr, leaderPodId, value)
+				if err != nil {
+					logDev("Failed to save member re-encryption key: %v", err)
+					continue
+				}
+			}
+		}
+	}
+}
 
 // leader watches for public keys from members under directory
 // "members/<leader-pod-id>/publicKey/*"
@@ -204,6 +239,31 @@ func (kr *KeyRegistry) WatchMemberPublicKeys(memberPublicKeyDir, leaderPodId str
 			}
 		}
 	}
+}
+
+// save the re-encryption key of a member from etcd
+func (kr *KeyRegistry) HandleMemberReEncryptionKey(keyStr, leaderPodId string, value []byte) error {
+	logDev := mutil.LogWithPrefix("dev - HandleMemberReEncryptionKey")
+
+	rks := new(samba.ReEncryptionKeySerialized)
+	err := json.NewDecoder(bytes.NewReader(value)).Decode(rks)
+	if err != nil {
+		return fmt.Errorf("failed to decode re-encryption key: %v", err)
+	}
+
+	reEncryptionKey, err := rks.DeSerialize()
+	if err != nil {
+		return fmt.Errorf("failed to deserialize re-encryption key: %v", err)
+	}
+
+	mlrKeyMap := kr.MemLeaderReEncryptionKey
+	if mlrKeyMap == nil {
+		mlrKeyMap = make(map[string]*pre.ReEncryptionKey)
+	}
+	mlrKeyMap[leaderPodId] = reEncryptionKey
+	logDev("Got re-encryption key from leader %s", leaderPodId)
+
+	return nil
 }
 
 // get the public key of a member from etcd
