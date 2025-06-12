@@ -7,9 +7,9 @@
 		- become a member
 		- once it know it isn't the leader 
 			- wait for leader's public params from: `leaders/<function-revision>/publicParams`
-			- create its key pair and register its public key to: `members/<function-revision>/<leader-pod-id>/<pod-id>/publicKey`
-- --
-- `Leader Re-election`
+			- create its key pair and register its public key to: `members/<leader-pod-id>/publicKey/<member-pod-id>`
+---
+- `Leader Re-election` <!-- TODO: later -->
 	- leader
 		- create your own public params and update the leader's public params for your function: `leaders/<function-revision>/publicParams`
 		- create and register public key to: `leaders/<function-revision>/publicKey`
@@ -21,11 +21,11 @@
 ---
 - `ReEncryption Key Generation`
 	- leader
-		- watch the key prefix: `members/<function-revision>/<leader-pod-id>/*/publicKey`
+		- watch the key prefix: `members/<leader-pod-id>/publicKey/*`
 		- for every new `publicKey` create a re-encryption key (allowing member function to re-encrypt the ciphertext meant for leader to itself)
-		- register the re-encryption key for the member to: `members/<function-revision>/<leader-pod-id>/*/reEncryptionKey`
+		- register the re-encryption key for the member to: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
 	- member
-		- watch the key prefix: `members/<function-revision>/<leader-pod-id>/<pod-id>/reEncryptionKey`
+		- watch the key prefix: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
 ---
 - What does a function needs to encrypt message?
 	- the actual message
@@ -33,7 +33,7 @@
 	- public key of receiver's leader function: `leaders/<function-revision>/publicKey`
 - What does a function need to decrypt incoming message?
 	- the actual message
-	- the re-encryption key: `members/<function-revision>/<leader-pod-id>/<pod-id>/reEncryptionKey`
+	- the re-encryption key: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
 	- it's own `pre-` private key to decrypt the re-encrypted message
 - other functions in the cluster only need watch for public keys of leader functions: `leaders/*/publicKey`
 ---
@@ -48,3 +48,7 @@
 			- needs the re-encryption key
 			- `map[functionRevision][]{LeaderId string, ReEncryptionKey *pre.ReEncryptionKey}`
 			- to handle re-election: use the previous re-encryption keys if decryption fails
+---
+- If we assume keys in the `etcd` are files then,
+	- watching a key, such as `leaders/<function-revision>/publicParams`, is like reading a file
+	- watching a key prefix, such as `members/<leader-pod-id>/publicKey/*`, is like watching a directory for new files with names `<member-pod-id>`
