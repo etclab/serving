@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"net/http"
 	"os"
@@ -173,10 +174,8 @@ type Defaults struct {
 	// The new Transport will then be used by other Options (called next) and by QP.
 	Transport http.RoundTripper
 
-	// holds proxy re-encryption related values
-	PreContext *PreContext
-
-	// etcd key registry
+	// allows queue-proxy to access keys stored in etcd registry
+	// holds proxy re-encryption related state
 	KeyRegistry *kregistry.KeyRegistry
 }
 
@@ -243,27 +242,30 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				// leader <- id
 
 				pp := pre.NewPublicParams()
-				d.PreContext.lPublicParams = pp
-				d.PreContext.lKeyPair = pre.KeyGen(pp)
+				d.KeyRegistry.LeaPublicParams = pp
+				d.KeyRegistry.LeaKeyPair = pre.KeyGen(pp)
 
 				// TODO: better way to create key labels
-				lPublicParamsLabel := "leaders/" + d.PreContext.FunctionId + "/publicParams"
-				lPublicKeyLabel := "leaders/" + d.PreContext.FunctionId + "/publicKey"
+				lPublicParamsLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicParams"
+				lPublicKeyLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicKey"
 
 				logDev("Store public params with label: %s", lPublicParamsLabel)
 				logDev("Store public key with label: %s", lPublicKeyLabel)
 
-				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, d.PreContext.lKeyPair.PK)
+				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, d.KeyRegistry.LeaKeyPair.PK)
 				if err != nil {
 					// TODO: log the error and maybe retry later
 					logDev("Error storing public key in KeyRegistry: %v", err)
 				}
 
-				err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, d.PreContext.lPublicParams)
+				err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, d.KeyRegistry.LeaPublicParams)
 				if err != nil {
 					// TODO: log the error and maybe retry later
 					logDev("Error storing public params in KeyRegistry: %v", err)
 				}
+
+				// TODO: once successfully saved the new public keys/params
+				// start watching for the member public keys
 			},
 			OnStoppedLeading: func() {
 				// we can do cleanup here, but note that this callback is always called
@@ -300,7 +302,6 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 }
 
 func initEtcdWithRetry(d *Defaults) {
-	d.KeyRegistry = new(kregistry.KeyRegistry)
 	d.KeyRegistry.InitEtcdWithRetry()
 }
 
@@ -326,6 +327,8 @@ func Main(opts ...Option) error {
 	logDev := mutil.LogWithPrefix("dev - Main")
 	logDev("d.Env = %+v", d.Env)
 
+	d.KeyRegistry = new(kregistry.KeyRegistry)
+	d.KeyRegistry.IsEtcdReady = make(chan struct{})
 	// connect to etcd
 	go initEtcdWithRetry(&d)
 
@@ -355,7 +358,7 @@ func Main(opts ...Option) error {
 	}
 
 	// allow extensions to read d and return modified context and transport
-	opts = append(opts, InitProxyReEncryption())
+	opts = append(opts, initKeyRegistry())
 	for _, opts := range opts {
 		opts(&d)
 	}
@@ -436,6 +439,9 @@ func Main(opts ...Option) error {
 	// 	logDev("I'm not the leader queue-proxy: %s, leader is: %s", podId, leaseResult)
 	// }
 
+	// THINK: with all the leader election, etcd connection with retry,
+	// re-encryption key generation, and running on top of enclaves -
+	// are there ways we can speed up the queue-proxy startup?
 	logger.Info("Starting queue-proxy")
 
 	errCh := make(chan error)
@@ -495,35 +501,12 @@ func Main(opts ...Option) error {
 	return nil
 }
 
-//	Env:{
-//		ServingNamespace:default
-//		ServingService:second
-//		ServingConfiguration:second
-//		ServingRevision:second-00001
-//		ServingPod:second-00001-deployment-55d95d8764-bd4tq
-//	 	ServingPodIP:10.244.0.98
-//	}
-type PreContext struct {
-	// InstanceId is the ip address of the pod
-	InstanceId string
-	// RevisionId is the unique id for the function
-	// and identifies a deployed revision of the function
-	FunctionId   string
-	KeyPair      *pre.KeyPair
-	PublicParams *pre.PublicParams
-	// Crypto       SambaCrypto
-
-	lPublicParams *pre.PublicParams
-	lKeyPair      *pre.KeyPair
-}
-
 // initialize proxy re-encryption values
-func InitProxyReEncryption() Option {
+func initKeyRegistry() Option {
 	return func(d *Defaults) {
-		d.PreContext = &PreContext{
-			InstanceId: d.Env.ServingPodIP,
-			FunctionId: d.Env.ServingRevision,
-		}
+		d.KeyRegistry.InstanceId = d.Env.ServingPodIP
+		d.KeyRegistry.FunctionId = d.Env.ServingRevision
+		d.KeyRegistry.PodId = d.Env.ServingPod
 	}
 }
 

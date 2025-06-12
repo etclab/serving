@@ -1,10 +1,12 @@
 package kregistry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/etclab/pre"
@@ -13,8 +15,40 @@ import (
 	"knative.dev/serving/pkg/samba"
 )
 
+//	Env:{
+//		ServingNamespace:default
+//		ServingService:second
+//		ServingConfiguration:second
+//		ServingRevision:second-00001
+//		ServingPod:second-00001-deployment-55d95d8764-bd4tq
+//	 	ServingPodIP:10.244.0.98
+//	}
 type KeyRegistry struct {
-	client *clientv3.Client
+	client      *clientv3.Client
+	IsEtcdReady chan struct{}
+
+	// InstanceId is the ip address of the pod
+	InstanceId string
+	// RevisionId is the unique id for the function
+	// and identifies a deployed revision of the function
+	FunctionId string
+	// PodId is the unique id for the pod
+	PodId        string
+	KeyPair      *pre.KeyPair
+	PublicParams *pre.PublicParams
+	// Crypto       SambaCrypto
+
+	// state when queue-proxy is a leader
+	LeaPublicParams *pre.PublicParams
+	LeaKeyPair      *pre.KeyPair
+
+	// state when queue-proxy is a member
+	// TODO: I think the best way to store these values is to mimic the
+	// path (or folder) like structure in etcd using maps
+	MemKeyPair            *pre.KeyPair
+	MemLeaderIds          []string
+	MemLeaderPublicKey    map[string]*pre.PublicKey
+	MemLeaderPublicParams map[string]*pre.PublicParams
 }
 
 func (kr *KeyRegistry) Client() *clientv3.Client {
