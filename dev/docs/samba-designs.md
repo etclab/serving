@@ -7,6 +7,10 @@
 				- `member -> etcd -> leader`
 				- `leader -> etcd -> member`
 		- re-encryption keygen still scales linearly to number of replicas
+		- public re-encryption keys
+			- since re-encryption keys are public, what happens if an attacker takes control of a pod?
+				- hey can trivially read their own message with the pod's secret key
+				- Even though re-encryption keys are public they cannot read messages destined for other pods. Assuming protection provided by enclaves hold, an attacker cannot leak other pod's secret key.
 	- pros 
 		- `etcd` helps scale discovery of leader's `publicKey` and `publicParams` for members (replicas)
 		- `etcd` helps scale discover `publicKey` of all leaders in function chain
