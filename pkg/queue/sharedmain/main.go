@@ -290,12 +290,32 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 			},
 			OnNewLeader: func(identity string) {
 				// we're notified when new leader elected
+				// identity is pod id
 				if identity == id {
 					// I just got the lock
+					// TODO: not sure what this'll be useful for at the moment
 					return
 				}
 				logDev("new leader elected: %s", identity)
-				leader <- identity
+
+				// NOTE: identity right now is pod id and revision name can be
+				// parsed from it but it might not be the case everytime
+				// `identity` looks like this: first-00001-deployment-59567cdfc-jhqfb
+				// so anything before -deployment- is the function revision name
+				parts := strings.Split(identity, "-deployment-")
+				leaderFunctionRevision := parts[0]
+
+				leaderPublicPrefix := "leaders/" + leaderFunctionRevision + "/public"
+
+				d.KeyRegistry.MemLeaderIds = append(d.KeyRegistry.MemLeaderIds, identity)
+
+				// FIXME: both functions update the same variables, using data from
+				// different apis, and via two goroutines == race condition?
+				// -> maybe look at time of the last update and use the latest one
+				// and instead use a single channel to update the data
+				go d.KeyRegistry.WatchLeaderKeys(leaderPublicPrefix, identity)
+				// if keys were created before the watch is established
+				go d.KeyRegistry.FetchExistingLeaderKeys(leaderPublicPrefix, identity)
 			},
 		},
 	})
