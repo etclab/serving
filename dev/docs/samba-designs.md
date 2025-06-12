@@ -1,6 +1,15 @@
 ### Iteration 2
 - `etcd` as public registry
 	- [protocol for synchronization](./sync-protocol.md)  
+	- cons 
+		- extra hops in the network for sending re-encryption key to member and receiving public key from member:
+			- member sends public key to leader, leader replies back with re-encryption key
+				- `member -> etcd -> leader`
+				- `leader -> etcd -> member`
+		- re-encryption keygen still scales linearly to number of replicas
+	- pros 
+		- `etcd` helps scale discovery of leader's `publicKey` and `publicParams` for members (replicas)
+		- `etcd` helps scale discover `publicKey` of all leaders in function chain
 - revisit the goals
 	- Problem: remove the trusted key orchestrator managing the keys among functions.
 ---
