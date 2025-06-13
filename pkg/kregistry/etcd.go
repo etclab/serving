@@ -54,9 +54,7 @@ type KeyRegistry struct {
 	LeaMemReEncryptionKeys map[string]*pre.ReEncryptionKey
 
 	// state when queue-proxy is a member
-	// TODO: I think the best way to store these values is to mimic the
-	// path (or folder) like structure in etcd using maps
-	MemKeyPair *pre.KeyPair
+	MemKeyPair map[string]*pre.KeyPair // key is leader pod id
 	// MemLeader* means the data for member is received from the leader
 	MemLeaderIds             []string
 	MemLeaderPublicKey       map[string]*pre.PublicKey // key is leader pod id
@@ -485,7 +483,7 @@ func (kr *KeyRegistry) FetchExistingLeaderKeys(keyPrefix, leaderPodId string) in
 func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte) error {
 	logDev := mutil.LogWithPrefix("dev - HandleLeaderKeys")
 
-	if strings.HasSuffix(keyStr, "publicKey") {
+	if strings.HasSuffix(keyStr, "publicKey/"+leaderPodId) {
 		pks := new(samba.PublicKeySerialized)
 		err := json.NewDecoder(bytes.NewReader(value)).Decode(pks)
 		if err != nil {
@@ -506,7 +504,7 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 		return nil
 	}
 
-	if strings.HasSuffix(keyStr, "publicParams") {
+	if strings.HasSuffix(keyStr, "publicParams/"+leaderPodId) {
 		pks := new(samba.PublicParamsSerialized)
 		err := json.NewDecoder(bytes.NewReader(value)).Decode(pks)
 		if err != nil {
@@ -525,13 +523,17 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 		ppMap[leaderPodId] = publicParams
 		logDev("Got public params for leader %s", leaderPodId)
 
-		kr.MemKeyPair = pre.KeyGen(publicParams)
+		kpMap := kr.MemKeyPair
+		if kpMap == nil {
+			kpMap = make(map[string]*pre.KeyPair)
+		}
+		kpMap[leaderPodId] = pre.KeyGen(publicParams)
 		logDev("Created key pair for member %s", kr.PodId)
 
 		// a member stores their public key under a specific label
 		// members/<leader-pod-id>/publicKey/<member-pod-id>
 		memPubKeyLabel := "members/" + leaderPodId + "/publicKey/" + kr.PodId
-		err = kr.StorePublicKey(memPubKeyLabel, kr.MemKeyPair.PK)
+		err = kr.StorePublicKey(memPubKeyLabel, kpMap[leaderPodId].PK)
 		if err != nil {
 			return fmt.Errorf("failed to store member public key: %v", err)
 		}

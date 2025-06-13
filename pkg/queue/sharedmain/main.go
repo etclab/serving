@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"net/http"
 	"os"
@@ -307,15 +306,11 @@ func TryAcquireLease(d *Defaults) {
 				reEncKeyDir := "members/" + leaderIdentity + "/reEncryptionKey/" + myId
 				go d.KeyRegistry.ListWatchReEncryptionKey(reEncKeyDir, leaderIdentity)
 
-				// NOTE: identity right now is pod id and revision name can be
-				// parsed from it but it might not be the case everytime
-				// `identity` looks like this: first-00001-deployment-59567cdfc-jhqfb
-				// so anything before -deployment- is the function revision name
-				parts := strings.Split(leaderIdentity, "-deployment-")
-				leaderFunctionRevision := parts[0]
-
-				leaderPublicPrefix := "leaders/" + leaderFunctionRevision + "/public"
-
+				myFunctionRevision := d.KeyRegistry.FunctionId
+				// leader publicKey and publicParams are at:
+				// leaders/<function-revision>/publicKey/<leader-pod-id>
+				// leaders/<function-revision>/publicParams/<leader-pod-id>
+				leaderPublicPrefix := "leaders/" + myFunctionRevision + "/public"
 				d.KeyRegistry.MemLeaderIds = append(d.KeyRegistry.MemLeaderIds, leaderIdentity)
 
 				// implements the List & Watch pattern
