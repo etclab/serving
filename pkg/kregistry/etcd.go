@@ -24,8 +24,15 @@ import (
 //	 	ServingPodIP:10.244.0.98
 //	}
 type KeyRegistry struct {
-	client      *clientv3.Client
+	client *clientv3.Client
+	// was pod able to connect to etcd?
 	IsEtcdReady chan struct{}
+
+	// is pod read for proxy re-encryption?
+	// when does a pod become ready for proxy re-encryption?
+	// if it's a leader, it's ready when it has public params and keypair
+	// if it's a member, it's ready when it has re-encryption key from leader
+	IsPodPreReady chan struct{}
 
 	// InstanceId is the ip address of the pod
 	InstanceId string
@@ -55,6 +62,15 @@ type KeyRegistry struct {
 	MemLeaderPublicKey       map[string]*pre.PublicKey // key is leader pod id
 	MemLeaderPublicParams    map[string]*pre.PublicParams
 	MemLeaderReEncryptionKey map[string]*pre.ReEncryptionKey
+}
+
+func (kr *KeyRegistry) MarkPodPreReady() {
+	select {
+	case <-kr.IsPodPreReady:
+		// already closed
+	default:
+		close(kr.IsPodPreReady)
+	}
 }
 
 func (kr *KeyRegistry) Client() *clientv3.Client {
@@ -333,6 +349,10 @@ func (kr *KeyRegistry) HandleMemberReEncryptionKey(keyStr, leaderPodId string, v
 	}
 	mlrKeyMap[leaderPodId] = reEncryptionKey
 	logDev("Got re-encryption key from leader %s", leaderPodId)
+
+	// if I'm a member I'm ready for proxy re-encryption
+	// as soon as I have the re-encryption key from the leader
+	go kr.MarkPodPreReady()
 
 	return nil
 }

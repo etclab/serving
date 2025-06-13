@@ -193,7 +193,7 @@ func init() {
 // other functions encrypting to this revision (function) must use the
 // leader's public key for encryption
 // src: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
-func TryAcquireLease(d *Defaults, leader chan string) {
+func TryAcquireLease(d *Defaults) {
 	var startedLeading atomic.Bool
 
 	logDev := mutil.LogWithPrefix("dev - TryAcquireLease")
@@ -249,9 +249,11 @@ func TryAcquireLease(d *Defaults, leader chan string) {
 				d.KeyRegistry.LeaPublicParams = pp
 				d.KeyRegistry.LeaKeyPair = pre.KeyGen(pp)
 
-				// TODO: better way to create key labels
-				lPublicParamsLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicParams"
-				lPublicKeyLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicKey"
+				// if I'm a leader I'm ready to receive messages as soon as my key pair is ready
+				go d.KeyRegistry.MarkPodPreReady()
+
+				lPublicParamsLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicParams/" + myId
+				lPublicKeyLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicKey/" + myId
 
 				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, d.KeyRegistry.LeaKeyPair.PK)
 				if err != nil {
@@ -448,19 +450,11 @@ func Main(opts ...Option) error {
 	}
 
 	// before queue-proxy starts listening for requests
-	leader := make(chan string)
-	go TryAcquireLease(&d, leader)
-
-	// podId := d.Env.ServingPod
-	// wait for the leader to be elected
-	// <-leader
-	// isLeader := leaseResult == podId
-
-	// if isLeader {
-	// 	logDev("I'm the leader queue-proxy: %s", podId)
-	// } else {
-	// 	logDev("I'm not the leader queue-proxy: %s, leader is: %s", podId, leaseResult)
-	// }
+	d.KeyRegistry.IsPodPreReady = make(chan struct{})
+	go TryAcquireLease(&d)
+	// is pod read for proxy re-encryption?
+	// wait until this pod becomes the leader or joins as a member
+	<-d.KeyRegistry.IsPodPreReady
 
 	// THINK: with all the leader election, etcd connection with retry,
 	// re-encryption key generation, and running on top of enclaves -
