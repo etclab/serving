@@ -245,8 +245,9 @@ func TryAcquireLease(d *Defaults) {
 				go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
 
 				pp := pre.NewPublicParams()
-				d.KeyRegistry.LeaPublicParams = pp
-				d.KeyRegistry.LeaKeyPair = pre.KeyGen(pp)
+				keyPair := pre.KeyGen(pp)
+
+				d.KeyRegistry.SafeWriteLeaderKeys(keyPair, pp)
 
 				// if I'm a leader I'm ready to receive messages as soon as my key pair is ready
 				go d.KeyRegistry.MarkPodPreReady()
@@ -254,13 +255,13 @@ func TryAcquireLease(d *Defaults) {
 				lPublicParamsLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicParams/" + myId
 				lPublicKeyLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicKey/" + myId
 
-				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, d.KeyRegistry.LeaKeyPair.PK)
+				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, keyPair.PK)
 				if err != nil {
 					// TODO: log the error and maybe retry later
 					logDev("Error storing public key in KeyRegistry: %v", err)
 				}
 
-				err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, d.KeyRegistry.LeaPublicParams)
+				err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, pp)
 				if err != nil {
 					// TODO: log the error and maybe retry later
 					logDev("Error storing public params in KeyRegistry: %v", err)

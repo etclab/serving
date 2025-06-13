@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/etclab/pre"
@@ -46,8 +47,9 @@ type KeyRegistry struct {
 	// Crypto       SambaCrypto
 
 	// state when queue-proxy is a leader
-	LeaPublicParams *pre.PublicParams
-	LeaKeyPair      *pre.KeyPair
+	LeaPublicParams []*pre.PublicParams
+	LeaKeyPair      []*pre.KeyPair
+	muLeaKeys       sync.RWMutex
 	// LeaMem* means the data for leader is received from the members
 	LeaMemPublicKeys map[string]*pre.PublicKey // key is member pod id
 	// leader generates re-encryption key using member public keys
@@ -60,6 +62,25 @@ type KeyRegistry struct {
 	MemLeaderPublicKey       map[string]*pre.PublicKey // key is leader pod id
 	MemLeaderPublicParams    map[string]*pre.PublicParams
 	MemLeaderReEncryptionKey map[string]*pre.ReEncryptionKey
+}
+
+func (kr *KeyRegistry) SafeReadLeaderKeys() (*pre.PublicParams, *pre.KeyPair) {
+	kr.muLeaKeys.RLock()
+	defer kr.muLeaKeys.RUnlock()
+	pp := kr.LeaPublicParams
+	kp := kr.LeaKeyPair
+	// return pp, kp
+	return pp[len(pp)-1], kp[len(kp)-1]
+}
+
+func (kr *KeyRegistry) SafeWriteLeaderKeys(keyPair *pre.KeyPair, publicParams *pre.PublicParams) {
+	kr.muLeaKeys.Lock()
+	defer kr.muLeaKeys.Unlock()
+	// kr.LeaPublicParams = publicParams
+	// kr.LeaKeyPair = keyPair
+
+	kr.LeaPublicParams = append(kr.LeaPublicParams, publicParams)
+	kr.LeaKeyPair = append(kr.LeaKeyPair, keyPair)
 }
 
 func (kr *KeyRegistry) MarkPodPreReady() {
@@ -386,7 +407,9 @@ func (kr *KeyRegistry) HandleMemberPublicKey(keyStr, leaderPodId string, value [
 		logDev("Got public key for member %s", memberPodId)
 
 		// create a re-encryption key for the member
-		reEncryptionKey := pre.ReEncryptionKeyGen(kr.LeaPublicParams, kr.LeaKeyPair.SK, publicKey)
+		pp, kp := kr.SafeReadLeaderKeys()
+		reEncryptionKey := pre.ReEncryptionKeyGen(pp, kp.SK, publicKey)
+
 		rKeyMap := kr.LeaMemReEncryptionKeys
 		if rKeyMap == nil {
 			rKeyMap = make(map[string]*pre.ReEncryptionKey)
