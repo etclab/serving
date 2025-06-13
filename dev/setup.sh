@@ -28,3 +28,5 @@ kubectl patch configmap/config-network \
   -n knative-serving \
   --type merge \
   -p '{"data":{"ingress.class":"kourier.ingress.networking.knative.dev"}}'
+
+./dev/setup-etcd.sh
