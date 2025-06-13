@@ -59,9 +59,23 @@ type KeyRegistry struct {
 	MemKeyPair map[string]*pre.KeyPair // key is leader pod id
 	// MemLeader* means the data for member is received from the leader
 	MemLeaderIds             []string
+	muMemLeaderIds           sync.RWMutex
 	MemLeaderPublicKey       map[string]*pre.PublicKey // key is leader pod id
 	MemLeaderPublicParams    map[string]*pre.PublicParams
 	MemLeaderReEncryptionKey map[string]*pre.ReEncryptionKey
+}
+
+func (kr *KeyRegistry) SafeWriteLeaderId(leaderId string) {
+	kr.muMemLeaderIds.Lock()
+	defer kr.muMemLeaderIds.Unlock()
+	kr.MemLeaderIds = append(kr.MemLeaderIds, leaderId)
+}
+
+func (kr *KeyRegistry) SafeReadLeaderId(leaderId string) string {
+	kr.muMemLeaderIds.RLock()
+	defer kr.muMemLeaderIds.RUnlock()
+	ids := kr.MemLeaderIds
+	return ids[len(ids)-1]
 }
 
 func (kr *KeyRegistry) SafeReadLeaderKeys() (*pre.PublicParams, *pre.KeyPair) {
@@ -69,16 +83,12 @@ func (kr *KeyRegistry) SafeReadLeaderKeys() (*pre.PublicParams, *pre.KeyPair) {
 	defer kr.muLeaKeys.RUnlock()
 	pp := kr.LeaPublicParams
 	kp := kr.LeaKeyPair
-	// return pp, kp
 	return pp[len(pp)-1], kp[len(kp)-1]
 }
 
 func (kr *KeyRegistry) SafeWriteLeaderKeys(keyPair *pre.KeyPair, publicParams *pre.PublicParams) {
 	kr.muLeaKeys.Lock()
 	defer kr.muLeaKeys.Unlock()
-	// kr.LeaPublicParams = publicParams
-	// kr.LeaKeyPair = keyPair
-
 	kr.LeaPublicParams = append(kr.LeaPublicParams, publicParams)
 	kr.LeaKeyPair = append(kr.LeaKeyPair, keyPair)
 }

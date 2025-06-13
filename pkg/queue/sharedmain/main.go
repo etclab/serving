@@ -301,6 +301,7 @@ func TryAcquireLease(d *Defaults) {
 					return
 				}
 				logDev("new leader elected: %s", leaderIdentity)
+				d.KeyRegistry.SafeWriteLeaderId(leaderIdentity)
 
 				// watch for re-encryption keys at exact prefix:
 				// members/<leader-pod-id>/reEncryptionKey/<my-pod-id>
@@ -312,7 +313,6 @@ func TryAcquireLease(d *Defaults) {
 				// leaders/<function-revision>/publicKey/<leader-pod-id>
 				// leaders/<function-revision>/publicParams/<leader-pod-id>
 				leaderPublicPrefix := "leaders/" + myFunctionRevision + "/public"
-				d.KeyRegistry.MemLeaderIds = append(d.KeyRegistry.MemLeaderIds, leaderIdentity)
 
 				// implements the List & Watch pattern
 				// https://www.mgasch.com/2021/01/listwatch-part-1/#the-list--watch-pattern
