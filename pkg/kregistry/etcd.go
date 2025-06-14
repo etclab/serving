@@ -73,7 +73,7 @@ type KeyRegistry struct {
 }
 
 func (kr *KeyRegistry) SafeWriteMemKeyPair(leaderPodId string, keyPair *pre.KeyPair) *pre.KeyPair {
-	return mutil.GSafeWriteToMap(leaderPodId, keyPair, kr.MemKeyPair, &kr.muMemKeyPair)
+	return mutil.GSafeWriteToMap(leaderPodId, keyPair, &kr.MemKeyPair, &kr.muMemKeyPair)
 }
 
 func (kr *KeyRegistry) SafeReadMemKeyPair(leaderId string) *pre.KeyPair {
@@ -81,7 +81,7 @@ func (kr *KeyRegistry) SafeReadMemKeyPair(leaderId string) *pre.KeyPair {
 }
 
 func (kr *KeyRegistry) SafeWriteMemLeaderReEncryptionKey(leaderPodId string, reEncryptionKey *pre.ReEncryptionKey) *pre.ReEncryptionKey {
-	return mutil.GSafeWriteToMap(leaderPodId, reEncryptionKey, kr.MemLeaderReEncryptionKey, &kr.muMemLeaderReEncryptionKey)
+	return mutil.GSafeWriteToMap(leaderPodId, reEncryptionKey, &kr.MemLeaderReEncryptionKey, &kr.muMemLeaderReEncryptionKey)
 }
 
 func (kr *KeyRegistry) SafeReadMemLeaderReEncryptionKey(leaderId string) *pre.ReEncryptionKey {
@@ -89,7 +89,7 @@ func (kr *KeyRegistry) SafeReadMemLeaderReEncryptionKey(leaderId string) *pre.Re
 }
 
 func (kr *KeyRegistry) SafeWriteMemLeaderPublicParams(leaderPodId string, publicParams *pre.PublicParams) *pre.PublicParams {
-	return mutil.GSafeWriteToMap(leaderPodId, publicParams, kr.MemLeaderPublicParams, &kr.muMemLeaderPublicParams)
+	return mutil.GSafeWriteToMap(leaderPodId, publicParams, &kr.MemLeaderPublicParams, &kr.muMemLeaderPublicParams)
 }
 
 func (kr *KeyRegistry) SafeReadMemLeaderPublicParams(leaderId string) *pre.PublicParams {
@@ -97,7 +97,7 @@ func (kr *KeyRegistry) SafeReadMemLeaderPublicParams(leaderId string) *pre.Publi
 }
 
 func (kr *KeyRegistry) SafeWriteMemLeaderPublicKey(leaderPodId string, publicKey *pre.PublicKey) *pre.PublicKey {
-	return mutil.GSafeWriteToMap(leaderPodId, publicKey, kr.MemLeaderPublicKey, &kr.muMemLeaderPublicKey)
+	return mutil.GSafeWriteToMap(leaderPodId, publicKey, &kr.MemLeaderPublicKey, &kr.muMemLeaderPublicKey)
 }
 
 func (kr *KeyRegistry) SafeReadMemLeaderPublicKey(leaderId string) *pre.PublicKey {
