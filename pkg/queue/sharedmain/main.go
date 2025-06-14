@@ -301,7 +301,7 @@ func TryAcquireLease(d *Defaults) {
 					return
 				}
 				logDev("new leader elected: %s", leaderIdentity)
-				d.KeyRegistry.SafeWriteLeaderId(leaderIdentity)
+				d.KeyRegistry.SafeWriteMemLeaderId(leaderIdentity)
 
 				// watch for re-encryption keys at exact prefix:
 				// members/<leader-pod-id>/reEncryptionKey/<my-pod-id>

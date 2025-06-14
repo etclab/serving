@@ -56,22 +56,61 @@ type KeyRegistry struct {
 	LeaMemReEncryptionKeys map[string]*pre.ReEncryptionKey
 
 	// state when queue-proxy is a member
-	MemKeyPair map[string]*pre.KeyPair // key is leader pod id
+	MemKeyPair   map[string]*pre.KeyPair // key is leader pod id
+	muMemKeyPair sync.RWMutex
 	// MemLeader* means the data for member is received from the leader
-	MemLeaderIds             []string
-	muMemLeaderIds           sync.RWMutex
-	MemLeaderPublicKey       map[string]*pre.PublicKey // key is leader pod id
-	MemLeaderPublicParams    map[string]*pre.PublicParams
-	MemLeaderReEncryptionKey map[string]*pre.ReEncryptionKey
+	MemLeaderIds   []string
+	muMemLeaderIds sync.RWMutex
+	//
+	MemLeaderPublicKey   map[string]*pre.PublicKey // key is leader pod id
+	muMemLeaderPublicKey sync.RWMutex
+	//
+	MemLeaderPublicParams   map[string]*pre.PublicParams
+	muMemLeaderPublicParams sync.RWMutex
+	//
+	MemLeaderReEncryptionKey   map[string]*pre.ReEncryptionKey
+	muMemLeaderReEncryptionKey sync.RWMutex
 }
 
-func (kr *KeyRegistry) SafeWriteLeaderId(leaderId string) {
+func (kr *KeyRegistry) SafeWriteMemKeyPair(leaderPodId string, keyPair *pre.KeyPair) *pre.KeyPair {
+	return mutil.GSafeWriteToMap(leaderPodId, keyPair, kr.MemKeyPair, &kr.muMemKeyPair)
+}
+
+func (kr *KeyRegistry) SafeReadMemKeyPair(leaderId string) *pre.KeyPair {
+	return mutil.GSafeReadFromMap(leaderId, kr.MemKeyPair, &kr.muMemKeyPair)
+}
+
+func (kr *KeyRegistry) SafeWriteMemLeaderReEncryptionKey(leaderPodId string, reEncryptionKey *pre.ReEncryptionKey) *pre.ReEncryptionKey {
+	return mutil.GSafeWriteToMap(leaderPodId, reEncryptionKey, kr.MemLeaderReEncryptionKey, &kr.muMemLeaderReEncryptionKey)
+}
+
+func (kr *KeyRegistry) SafeReadMemLeaderReEncryptionKey(leaderId string) *pre.ReEncryptionKey {
+	return mutil.GSafeReadFromMap(leaderId, kr.MemLeaderReEncryptionKey, &kr.muMemLeaderReEncryptionKey)
+}
+
+func (kr *KeyRegistry) SafeWriteMemLeaderPublicParams(leaderPodId string, publicParams *pre.PublicParams) *pre.PublicParams {
+	return mutil.GSafeWriteToMap(leaderPodId, publicParams, kr.MemLeaderPublicParams, &kr.muMemLeaderPublicParams)
+}
+
+func (kr *KeyRegistry) SafeReadMemLeaderPublicParams(leaderId string) *pre.PublicParams {
+	return mutil.GSafeReadFromMap(leaderId, kr.MemLeaderPublicParams, &kr.muMemLeaderPublicParams)
+}
+
+func (kr *KeyRegistry) SafeWriteMemLeaderPublicKey(leaderPodId string, publicKey *pre.PublicKey) *pre.PublicKey {
+	return mutil.GSafeWriteToMap(leaderPodId, publicKey, kr.MemLeaderPublicKey, &kr.muMemLeaderPublicKey)
+}
+
+func (kr *KeyRegistry) SafeReadMemLeaderPublicKey(leaderId string) *pre.PublicKey {
+	return mutil.GSafeReadFromMap(leaderId, kr.MemLeaderPublicKey, &kr.muMemLeaderPublicKey)
+}
+
+func (kr *KeyRegistry) SafeWriteMemLeaderId(leaderId string) {
 	kr.muMemLeaderIds.Lock()
 	defer kr.muMemLeaderIds.Unlock()
 	kr.MemLeaderIds = append(kr.MemLeaderIds, leaderId)
 }
 
-func (kr *KeyRegistry) SafeReadLeaderId(leaderId string) string {
+func (kr *KeyRegistry) SafeReadMemLeaderId(leaderId string) string {
 	kr.muMemLeaderIds.RLock()
 	defer kr.muMemLeaderIds.RUnlock()
 	ids := kr.MemLeaderIds
@@ -377,6 +416,7 @@ func (kr *KeyRegistry) HandleMemberReEncryptionKey(keyStr, leaderPodId string, v
 		mlrKeyMap = make(map[string]*pre.ReEncryptionKey)
 	}
 	mlrKeyMap[leaderPodId] = reEncryptionKey
+	kr.SafeWriteMemLeaderReEncryptionKey(leaderPodId, reEncryptionKey)
 	logDev("Got re-encryption key from leader %s", leaderPodId)
 
 	// if I'm a member I'm ready for proxy re-encryption
@@ -528,11 +568,7 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 			return fmt.Errorf("failed to deserialize public key: %v", err)
 		}
 
-		pkMap := kr.MemLeaderPublicKey
-		if pkMap == nil {
-			pkMap = make(map[string]*pre.PublicKey)
-		}
-		pkMap[leaderPodId] = publicKey
+		kr.SafeWriteMemLeaderPublicKey(leaderPodId, publicKey)
 		logDev("Got public key for leader %s", leaderPodId)
 		return nil
 	}
@@ -549,24 +585,17 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 			return fmt.Errorf("failed to deserialize public params: %v", err)
 		}
 
-		ppMap := kr.MemLeaderPublicParams
-		if ppMap == nil {
-			ppMap = make(map[string]*pre.PublicParams)
-		}
-		ppMap[leaderPodId] = publicParams
+		kr.SafeWriteMemLeaderPublicParams(leaderPodId, publicParams)
 		logDev("Got public params for leader %s", leaderPodId)
 
-		kpMap := kr.MemKeyPair
-		if kpMap == nil {
-			kpMap = make(map[string]*pre.KeyPair)
-		}
-		kpMap[leaderPodId] = pre.KeyGen(publicParams)
+		keyPair := pre.KeyGen(publicParams)
+		kr.SafeWriteMemKeyPair(leaderPodId, keyPair)
 		logDev("Created key pair for member %s", kr.PodId)
 
 		// a member stores their public key under a specific label
 		// members/<leader-pod-id>/publicKey/<member-pod-id>
 		memPubKeyLabel := "members/" + leaderPodId + "/publicKey/" + kr.PodId
-		err = kr.StorePublicKey(memPubKeyLabel, kpMap[leaderPodId].PK)
+		err = kr.StorePublicKey(memPubKeyLabel, keyPair.PK)
 		if err != nil {
 			return fmt.Errorf("failed to store member public key: %v", err)
 		}
