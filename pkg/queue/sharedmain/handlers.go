@@ -32,6 +32,7 @@ import (
 	"knative.dev/serving/pkg/activator"
 	pkghttp "knative.dev/serving/pkg/http"
 	"knative.dev/serving/pkg/http/handler"
+	"knative.dev/serving/pkg/kregistry"
 	"knative.dev/serving/pkg/queue"
 	"knative.dev/serving/pkg/queue/health"
 )
@@ -43,6 +44,7 @@ func mainHandler(
 	prober func() bool,
 	stats *netstats.RequestStats,
 	logger *zap.SugaredLogger,
+	kr *kregistry.KeyRegistry,
 ) (http.Handler, *pkghandler.Drainer) {
 	target := net.JoinHostPort("127.0.0.1", env.UserPort)
 
@@ -51,7 +53,7 @@ func mainHandler(
 	httpProxy.ErrorHandler = pkghandler.Error(logger)
 	httpProxy.BufferPool = netproxy.NewBufferPool()
 	httpProxy.FlushInterval = netproxy.FlushInterval
-	httpProxy.ModifyResponse = EncryptResponseBody
+	httpProxy.ModifyResponse = kr.EncryptResponseBody
 
 	breaker := buildBreaker(logger, env)
 	tracingEnabled := env.TracingConfigBackend != tracingconfig.None

@@ -605,3 +605,130 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 
 	return nil
 }
+
+func (kr *KeyRegistry) FetchStaticFunctionChains() {
+	logDev := mutil.LogWithPrefix("dev - FetchStaticFunctionChains")
+
+	// TODO: how do I know the function chain a request belongs to?
+	funChainKey := "functionChainStatic/0"
+	getRes, err := kr.Client().Get(context.Background(), funChainKey, clientv3.WithPrefix())
+	if err != nil {
+		logDev("failed to fetch function chain with key:%s from etcd: %v", funChainKey, err)
+		return
+	}
+
+	logDev("fetched %d existing function chains from etcd", len(getRes.Kvs))
+	for _, kv := range getRes.Kvs {
+		value := kv.Value
+		key := kv.Key
+
+		logDev("Received key: %s, value: %s", key, value)
+
+		if kr.functionChains == nil {
+			kr.functionChains = make([]string, 0)
+		}
+		kr.functionChains = append(kr.functionChains, string(key))
+		//
+		if kr.functionChainServices == nil {
+			kr.functionChainServices = make(map[string]string)
+		}
+		kr.functionChainServices[string(key)] = string(value)
+	}
+}
+
+func (kr *KeyRegistry) GetDefaultFunctionChain() []string {
+	recentChain := kr.functionChains[len(kr.functionChains)-1]
+	servicesStr := kr.functionChainServices[recentChain]
+	return strings.Split(servicesStr, "/")
+}
+
+// encrypts the response received from user-container
+func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
+	logDev := mutil.LogWithPrefix("dev - EncryptResponseBody")
+
+	logDev("Response: %s %s %d\n", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode)
+	for name, values := range resp.Header {
+		for _, value := range values {
+			logDev("  %s: %s\n", name, value)
+		}
+	}
+
+	// TODO: maybe implement streaming read/encryption?
+	plainBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logDev("Error reading response body: %v", err)
+		return err
+	}
+	resp.Body.Close()
+	logDev("Response Body (plain) (from user-container): %s", string(plainBytes))
+
+	// first fake-encrypt the response body using placeholder Encrypt function
+	encryptedBytes, err := mutil.FakeEncrypt(plainBytes)
+	if err != nil {
+		logDev("Error encrypting response body: %v", err)
+		return err
+	}
+
+	chainedServices := kr.GetDefaultFunctionChain()
+	currentService := kr.ServiceName
+	currentServiceIndex := slices.Index(chainedServices, currentService)
+	nextServiceIndex := currentServiceIndex + 1
+
+	// later if we can, encrypt the response body for next service in the chain
+	// encrypt request at first (going from first -> second), and at second (going from second -> third)
+	if nextServiceIndex >= len(chainedServices) {
+		logDev("No next service in the chain, skipping proxy encryption")
+	} else {
+		nextService := chainedServices[nextServiceIndex]
+		logDev("Encrypting response body for next service in the chain: %s", nextService)
+
+		nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
+		nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
+
+		m := pre.RandomGt()
+		wrappedKey := pre.Encrypt(nextServicePubParams, m, nextServicePubKey)
+		key := pre.KdfGtToAes256(m)
+		cipherText, err := mutil.AESGCMEncrypt(key, plainBytes)
+
+		if err != nil {
+			logDev("Error in AES-GCM encryption: %v", err)
+			return err
+		}
+
+		var wrappedKeySerialized samba.Ciphertext1Serialized
+		err = wrappedKeySerialized.Serialize(wrappedKey)
+		if err != nil {
+			logDev("Error serializing wrapped key: %v", err)
+			return err
+		}
+
+		sambaMessage := &samba.SambaMessage{
+			// not used right now
+			Target: nextService,
+			// always false because the message is always encrypted for leader's public key
+			// the member's proxy needs to re-encrypt it for the member's public key
+			IsReEncrypted: false,
+			WrappedKey1:   wrappedKeySerialized,
+			Ciphertext:    cipherText,
+		}
+
+		encryptedBytes, err = json.Marshal(sambaMessage)
+		if err != nil {
+			logDev("Error marshalling wrapped message: %v", err)
+			return err
+		}
+
+		// signal that we encrypted the response body
+		resp.Header.Set("X-Queue-Encrypted", "true")
+	}
+
+	logDev("Response Body (encrypted): %s", string(encryptedBytes))
+	logDev("Response Body length: %d", len(encryptedBytes))
+
+	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))
+	resp.ContentLength = int64(len(encryptedBytes))
+	resp.Header.Set("Content-Type", "application/json")
+	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
+
+	return nil
+}

@@ -411,7 +411,7 @@ func Main(opts ...Option) error {
 	logger.Infof("[dev] TLS enabled: %v (cert: %s, key: %s)", tlsEnabled, certPath, keyPath)
 
 	// what does mainHandler do?
-	mainHandler, drainer := mainHandler(d.Ctx, env, d.Transport, probe, stats, logger)
+	mainHandler, drainer := mainHandler(d.Ctx, env, d.Transport, probe, stats, logger, d.KeyRegistry)
 	adminHandler := adminHandler(d.Ctx, logger, drainer)
 
 	// Enable TLS server when activator server certs are mounted.
@@ -448,6 +448,11 @@ func Main(opts ...Option) error {
 	// before queue-proxy starts listening for requests
 	d.KeyRegistry.IsPodPreReady = make(chan struct{})
 	go TryAcquireLease(&d)
+
+	// once etcd is ready fetch the static function chains
+	<-d.KeyRegistry.IsEtcdReady
+	d.KeyRegistry.FetchStaticFunctionChains()
+
 	// is pod read for proxy re-encryption?
 	// wait until this pod becomes the leader or joins as a member
 	<-d.KeyRegistry.IsPodPreReady
@@ -519,6 +524,7 @@ func initKeyRegistry() Option {
 	return func(d *Defaults) {
 		d.KeyRegistry.InstanceId = d.Env.ServingPodIP
 		d.KeyRegistry.FunctionId = d.Env.ServingRevision
+		d.KeyRegistry.ServiceName = d.Env.ServingService
 		d.KeyRegistry.PodId = d.Env.ServingPod
 	}
 }
