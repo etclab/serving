@@ -24,6 +24,7 @@ metadata:
   annotations:
     knative.dev/example-checksum: "9f25d429"
 data:
+  # loglevel.queueproxy: "debug"
   _example: |
     ################################
     #                              #
