@@ -30,3 +30,7 @@ kubectl patch configmap/config-network \
   -p '{"data":{"ingress.class":"kourier.ingress.networking.knative.dev"}}'
 
 ./dev/setup-etcd.sh
+
+# adds a sample function chain to 
+kubectl wait --for=condition=ready pod/etcd-0 -n knative-serving --timeout=90s
+kubectl exec -it -n knative-serving etcd-0 -- etcdctl put functionChainStatic/0 first/second/third
