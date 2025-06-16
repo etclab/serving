@@ -593,22 +593,15 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if prevServiceIndex < 0 {
 		logDev("Message to `first` service doesn't arrive as encrypted, no decryption needed.")
 	} else {
-		myLeaderId := d.KeyRegistry.SafeReadMemLeaderId()
-		// get the re-encryption key
-		reEncKey := d.KeyRegistry.SafeReadMemLeaderReEncryptionKey(myLeaderId)
-
-		prevService := chainedServices[prevServiceIndex]
-		logDev("Decrypting response body from prev service in the chain: %s", prevService)
-
-		// assuming I am a member
-		myKeyPair := d.KeyRegistry.SafeReadMemKeyPair(myLeaderId)
-		myPublicParams := d.KeyRegistry.SafeReadMemLeaderPublicParams(myLeaderId)
-
 		var sambaMessage *samba.SambaMessage
 		if err := json.Unmarshal(encBody, &sambaMessage); err != nil {
 			logDev("Invalid message format: %v", err)
 			return nil, err
 		}
+
+		var myPublicParams *pre.PublicParams
+		var myKeyPair *pre.KeyPair
+		var reEncKey *pre.ReEncryptionKey
 
 		isLeader := d.KeyRegistry.StartedLeading.Load()
 		if isLeader {
@@ -616,6 +609,14 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			reEncKey = nil
 			myPublicParams, myKeyPair = d.KeyRegistry.SafeReadLeaderKeys()
 		} else {
+			// assuming I am a member
+			myLeaderId := d.KeyRegistry.SafeReadMemLeaderId()
+			// get the re-encryption key
+			reEncKey = d.KeyRegistry.SafeReadMemLeaderReEncryptionKey(myLeaderId)
+
+			myKeyPair = d.KeyRegistry.SafeReadMemKeyPair(myLeaderId)
+			myPublicParams = d.KeyRegistry.SafeReadMemLeaderPublicParams(myLeaderId)
+
 			// re-encrypt the ciphertext
 			sambaMessage, err = mutil.ReEncrypt(myPublicParams, reEncKey, sambaMessage)
 			if err != nil {

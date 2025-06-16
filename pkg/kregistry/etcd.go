@@ -846,11 +846,14 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	chainedServices := kr.GetDefaultFunctionChain()
 	currentService := kr.ServiceName
 	currentServiceIndex := slices.Index(chainedServices, currentService)
-	nextServiceIndex := currentServiceIndex + 1
+	nextServiceIndex := -1
+	if currentServiceIndex >= 0 { // this can be -1
+		nextServiceIndex = currentServiceIndex + 1
+	}
 
 	// later if we can, encrypt the response body for next service in the chain
 	// encrypt request at first (going from first -> second), and at second (going from second -> third)
-	if nextServiceIndex >= len(chainedServices) {
+	if nextServiceIndex < 0 || nextServiceIndex >= len(chainedServices) {
 		logDev("No next service in the chain, skipping proxy encryption")
 	} else {
 		nextService := chainedServices[nextServiceIndex]
