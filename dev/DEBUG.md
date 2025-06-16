@@ -9,3 +9,13 @@
 
 - How do I scale number of replicas of a function?
     - `kn service update <service-name> --scale-min <N>`
+
+- How do I add a static function chain to `etcd`?
+    - `kubectl exec -it -n knative-serving etcd-0 -- etcdctl put functionChainStatic/0 first/second/third` 
+
+- How to view traces with zipkin?
+    - enable the commented fields under `data` (`backend`, `zipkin-endpoint`, `sample-rate`, and `debug`) in file: `config/core/configmaps/tracing.yaml`
+    - deploy zipkin to namespace: `zipkin-monitoring` with: `./dev/setup_zipkin.sh`
+    - run: `kubectl proxy` in a terminal to access the k8s api server at port: `8001`
+    - port forward `8001` (if developing using vscode)
+    - access zipkin using browser at url: `http://localhost:8001/api/v1/namespaces/zipkin-monitoring/services/zipkin:9411/proxy/zipkin/`
