@@ -8,7 +8,9 @@ import (
 	"log"
 	"sync"
 
+	bls "github.com/cloudflare/circl/ecc/bls12381"
 	"github.com/etclab/pre"
+	"knative.dev/serving/pkg/samba"
 )
 
 const KeySize = 32
@@ -80,4 +82,57 @@ func AESGCMDecrypt(key, ciphertext []byte) ([]byte, error) {
 	}
 	nonce := make([]byte, NonceSize) // zero nonce
 	return aesgcm.Open(nil, nonce, ciphertext, nil)
+}
+
+func Decrypt(pp *pre.PublicParams, sk any, m *samba.SambaMessage) ([]byte, error) {
+	skPRE, ok := sk.(*pre.SecretKey)
+	if !ok {
+		return nil, fmt.Errorf("pk is not a proxy re-encryption SecretKey")
+	}
+
+	var gt *bls.Gt
+
+	if m.IsReEncrypted {
+		ct2, err := m.WrappedKey2.DeSerialize()
+		if err != nil {
+			return nil, err
+		}
+		gt = pre.Decrypt2(pp, ct2, skPRE)
+	} else {
+		ct1, err := m.WrappedKey1.DeSerialize()
+		if err != nil {
+			return nil, err
+		}
+		gt = pre.Decrypt1(pp, ct1, skPRE)
+	}
+
+	key := pre.KdfGtToAes256(gt)
+	plaintext, err := AESGCMDecrypt(key, m.Ciphertext)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
+}
+
+func ReEncrypt(pp *pre.PublicParams, rk *pre.ReEncryptionKey, m *samba.SambaMessage) (*samba.SambaMessage, error) {
+	ct1, err := m.WrappedKey1.DeSerialize()
+	if err != nil {
+		return nil, err
+	}
+
+	ct2 := pre.ReEncrypt(pp, rk, ct1)
+
+	var wk2 samba.Ciphertext2Serialized
+	err = wk2.Serialize(ct2)
+	if err != nil {
+		return nil, err
+	}
+
+	return &samba.SambaMessage{
+		Target:        m.Target,
+		IsReEncrypted: true,
+		WrappedKey2:   wk2,
+		Ciphertext:    m.Ciphertext,
+	}, nil
 }
