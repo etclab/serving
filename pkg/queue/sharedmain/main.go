@@ -20,15 +20,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	"knative.dev/serving/pkg/kregistry"
 	"knative.dev/serving/pkg/mutil"
 	"knative.dev/serving/pkg/queue/certificate"
+	"knative.dev/serving/pkg/samba"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -193,8 +195,6 @@ func init() {
 // leader's public key for encryption
 // src: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
 func TryAcquireLease(d *Defaults) {
-	var startedLeading atomic.Bool
-
 	logDev := mutil.LogWithPrefix("dev - TryAcquireLease")
 
 	bgCtx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -236,7 +236,7 @@ func TryAcquireLease(d *Defaults) {
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				// we're notified when we start leading
-				startedLeading.Store(true)
+				d.KeyRegistry.StartedLeading.Store(true)
 
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnStartedLeading")
 
@@ -252,8 +252,10 @@ func TryAcquireLease(d *Defaults) {
 				// if I'm a leader I'm ready to receive messages as soon as my key pair is ready
 				go d.KeyRegistry.MarkPodPreReady()
 
-				lPublicParamsLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicParams/" + myId
-				lPublicKeyLabel := "leaders/" + d.KeyRegistry.FunctionId + "/publicKey/" + myId
+				lPublicParamsLabel := "leaders/" + d.KeyRegistry.ServiceName +
+					"/" + d.KeyRegistry.FunctionId + "/publicParams/" + myId
+				lPublicKeyLabel := "leaders/" + d.KeyRegistry.ServiceName +
+					"/" + d.KeyRegistry.FunctionId + "/publicKey/" + myId
 
 				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, keyPair.PK)
 				if err != nil {
@@ -275,10 +277,11 @@ func TryAcquireLease(d *Defaults) {
 				logDev("leader lost: %s", myId)
 
 				// Example check to ensure we only perform cleanup if we actually started leading
-				if startedLeading.Load() {
+				if d.KeyRegistry.StartedLeading.Load() {
 					// Perform cleanup operations here
 					// For example, releasing resources, closing connections, etc.
 					logDev("Performing cleanup operations...")
+					d.KeyRegistry.StartedLeading.Store(false)
 				} else {
 					logDev("No cleanup needed as we never started leading.")
 				}
@@ -291,6 +294,8 @@ func TryAcquireLease(d *Defaults) {
 			OnNewLeader: func(leaderIdentity string) {
 				// we're notified when new leader elected
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnNewLeader")
+
+				go d.KeyRegistry.ListWatchEveryLeaderPublicKeys("leaders/")
 
 				// identity is pod id
 				if leaderIdentity == myId {
@@ -309,10 +314,11 @@ func TryAcquireLease(d *Defaults) {
 				go d.KeyRegistry.ListWatchReEncryptionKey(reEncKeyDir, leaderIdentity)
 
 				myFunctionRevision := d.KeyRegistry.FunctionId
+				myService := d.KeyRegistry.ServiceName
 				// leader publicKey and publicParams are at:
-				// leaders/<function-revision>/publicKey/<leader-pod-id>
-				// leaders/<function-revision>/publicParams/<leader-pod-id>
-				leaderPublicPrefix := "leaders/" + myFunctionRevision + "/public"
+				// leaders/<service-name>/<function-revision>/publicKey/<leader-pod-id>
+				// leaders/<service-name>/<function-revision>/publicParams/<leader-pod-id>
+				leaderPublicPrefix := "leaders/" + myService + "/" + myFunctionRevision + "/public"
 
 				// implements the List & Watch pattern
 				// https://www.mgasch.com/2021/01/listwatch-part-1/#the-list--watch-pattern
@@ -364,7 +370,8 @@ func Main(opts ...Option) error {
 	d.Transport = buildTransport(env)
 
 	d.Transport = &DebugTransport{
-		Transport: d.Transport,
+		Transport:   d.Transport,
+		KeyRegistry: d.KeyRegistry,
 	}
 
 	if env.TracingConfigBackend != tracingconfig.None {
@@ -548,55 +555,13 @@ func buildProbe(logger *zap.SugaredLogger, encodedProbe string, autodetectHTTP2 
 	return readiness.NewProbe(coreProbes)
 }
 
-// logs the request and decrypt the body
 type DebugTransport struct {
-	Transport http.RoundTripper
+	Transport   http.RoundTripper
+	KeyRegistry *kregistry.KeyRegistry
 }
 
-// encrypts the response received from user-container
-func EncryptResponseBody(resp *http.Response) error {
-	logDev := mutil.LogWithPrefix("dev - ModifyResponse")
-
-	logDev("Response: %s %s %d\n", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode)
-	for name, values := range resp.Header {
-		for _, value := range values {
-			logDev("  %s: %s\n", name, value)
-		}
-	}
-
-	plainBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logDev("Error reading response body: %v", err)
-		return err
-	}
-	resp.Body.Close()
-	logDev("Response Body (plain) (from user-container): %s", string(plainBytes))
-
-	encryptedBytes, err := Encrypt(plainBytes)
-	if err != nil {
-		logDev("Error encrypting response body: %v", err)
-		return err
-	}
-	logDev("Response Body (encrypted): %s", string(encryptedBytes))
-
-	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))
-	resp.ContentLength = int64(len(encryptedBytes))
-	resp.Header.Set("X-Queue-Encrypted", "true")
-
-	return nil
-}
-
-// placeholder encryption
-func Encrypt(plaintext []byte) ([]byte, error) {
-	return bytes.ToUpper(plaintext), nil
-}
-
-// placeholder decryption
-func Decrypt(encBody []byte) ([]byte, error) {
-	return bytes.ToLower(encBody), nil
-}
-
-func (t *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+// decrypts the response for user-container
+func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logDev := mutil.LogWithPrefix("dev - RoundTrip")
 
 	logDev("Request: %s %s\n", req.Method, req.URL.String())
@@ -614,18 +579,67 @@ func (t *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Body.Close()
 	logDev("Request Body (encrypted): %s", string(encBody))
 
-	plaintext, err := Decrypt(encBody)
+	plaintext, err := mutil.FakeDecrypt(encBody)
 	if err != nil {
 		logDev("Error decrypting request body: %v", err)
 		return nil, err
 	}
+
+	chainedServices := d.KeyRegistry.GetDefaultFunctionChain()
+	currentService := d.KeyRegistry.ServiceName
+	currentServiceIndex := slices.Index(chainedServices, currentService)
+	prevServiceIndex := currentServiceIndex - 1
+
+	if prevServiceIndex < 0 {
+		logDev("Message to `first` service doesn't arrive as encrypted, no decryption needed.")
+	} else {
+		myLeaderId := d.KeyRegistry.SafeReadMemLeaderId()
+		// get the re-encryption key
+		reEncKey := d.KeyRegistry.SafeReadMemLeaderReEncryptionKey(myLeaderId)
+
+		prevService := chainedServices[prevServiceIndex]
+		logDev("Decrypting response body from prev service in the chain: %s", prevService)
+
+		// assuming I am a member
+		myKeyPair := d.KeyRegistry.SafeReadMemKeyPair(myLeaderId)
+		myPublicParams := d.KeyRegistry.SafeReadMemLeaderPublicParams(myLeaderId)
+
+		var sambaMessage *samba.SambaMessage
+		if err := json.Unmarshal(encBody, &sambaMessage); err != nil {
+			logDev("Invalid message format: %v", err)
+			return nil, err
+		}
+
+		isLeader := d.KeyRegistry.StartedLeading.Load()
+		if isLeader {
+			// no need for re-encryption, just decrypt
+			reEncKey = nil
+			myPublicParams, myKeyPair = d.KeyRegistry.SafeReadLeaderKeys()
+		} else {
+			// re-encrypt the ciphertext
+			sambaMessage, err = mutil.ReEncrypt(myPublicParams, reEncKey, sambaMessage)
+			if err != nil {
+				logDev("Error re-encrypting message: %v", err)
+				return nil, err
+			}
+		}
+
+		// decrypt the ciphertext, get the plaintext
+		plaintext, err = mutil.Decrypt(myPublicParams, myKeyPair.SK, sambaMessage)
+		if err != nil {
+			logDev("Error decrypting message: %v", err)
+			return nil, err
+		}
+	}
+
 	logDev("Request Body (decrypted) (to user-container): %s", string(plaintext))
 
 	req.Body = io.NopCloser(bytes.NewReader(plaintext))
 	req.ContentLength = int64(len(plaintext))
 	req.Header.Set("X-Queue-Decrypted", "true")
+	req.Header.Set("Content-Length", strconv.Itoa(len(plaintext)))
 
-	return t.Transport.RoundTrip(req)
+	return d.Transport.RoundTrip(req)
 }
 
 func buildTransport(env config) http.RoundTripper {
