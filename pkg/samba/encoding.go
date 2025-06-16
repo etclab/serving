@@ -85,6 +85,14 @@ type Ciphertext1Serialized struct {
 	Beta  []byte
 }
 
+type SambaMessage struct {
+	Target        string                `json:"target"`
+	IsReEncrypted bool                  `json:"is_re_encrypted"`
+	WrappedKey1   Ciphertext1Serialized `json:"wrapped_key1"` // Encrypted bls.Gt that derives to AES key
+	WrappedKey2   Ciphertext2Serialized `json:"wrapped_key2"` // Re-encrypted bls.Gt that derives to AES key
+	Ciphertext    []byte                `json:"ciphertext"`   // plaintext (just a string for now) encrypted under the AES key
+}
+
 func (c *Ciphertext1Serialized) Serialize(ct1 *pre.Ciphertext1) error {
 	alpha, err := ct1.Alpha.MarshalBinary()
 	if err != nil {
