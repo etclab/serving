@@ -1,54 +1,45 @@
-- `Setup`
-	- leader function
-		- get elected as a leader
-		- create and register public params to: `leaders/<function-revision>/publicParams`
-		- create and register public key to: `leaders/<function-revision>/publicKey`
-	- member function
-		- become a member
-		- once it know it isn't the leader 
-			- wait for leader's public params from: `leaders/<function-revision>/publicParams`
-			- create its key pair and register its public key to: `members/<leader-pod-id>/publicKey/<member-pod-id>`
+- `leader function`
+	- get elected as a leader
+	- On `Setup`
+		- create and register public params to: `leaders/<service-name>/<function-revision>/publicParams/<leader-pod-id>`
+		- create and register public key to: `leaders/<service-name>/<function-revision>/publicKey/<leader-pod-id>`
+		- watch for members publishing their public key at: `members/<leader-pod-id>/publicKey/*`
+	- On `Receiving Member Public Key`
+		- receive a member's public key at: `members/<leader-pod-id>/publicKey/<member-pod-id>`
+		- create re-encryption key for member and store it at: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
+
+- `member function`
+	- become a member
+	- On `Setup`
+		- watch for leader's public params & public keys with prefix: `leaders/<service-name>/<function-revision>/public`
+		- watch for re-encryption key from leader at: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
+	- On `Receiving Leader Public Params & Public Keys`
+		- receive leader's public params at: `leaders/<service-name>/<function-revision>/publicParams/<leader-pod-id>`
+		- create its key pair and register its public key to: `members/<leader-pod-id>/publicKey/<member-pod-id>`
+	- On `Receiving its ReEncryption Key`
+		- receive it's re-encryption key from leader at: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
+	- Also watch for public params & public keys of other leader functions in the chain at: `leaders/*`
+
+- `both member & leader function`
+	- fetch the list of function chains
 ---
-- `Leader Re-election` <!-- TODO: later -->
-	- leader
-		- create your own public params and update the leader's public params for your function: `leaders/<function-revision>/publicParams`
-		- create and register public key to: `leaders/<function-revision>/publicKey`
-	- member
-		- get the new leader's public params from: `leaders/<function-revision>/publicParams`
-		- create new key pair and register its public key to: `members/<function-revision>/<leader-pod-id>/<pod-id>/publicKey`
-	- re-encryption key generation
-		- watch for registered public keys `members/<function-revision>/<leader-pod-id>/*/publicKey`
----
-- `ReEncryption Key Generation`
-	- leader
-		- watch the key prefix: `members/<leader-pod-id>/publicKey/*`
-		- for every new `publicKey` create a re-encryption key (allowing member function to re-encrypt the ciphertext meant for leader to itself)
-		- register the re-encryption key for the member to: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
-	- member
-		- watch the key prefix: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
+- `Leader Re-election`
+	- since each leader and member now have their own key-prefix (path/directory) to store their keys
+	- as soon as they can synchronize (received watched key-value pairs) they can start encryption, decryption even if a leader changes
 ---
 - What does a function needs to encrypt message?
 	- the actual message
-	- the next function the message is meant for (ie. receiver's `<function-revision>`)
-	- public key of receiver's leader function: `leaders/<function-revision>/publicKey`
+	- the next function the message is meant for (ie. receiver's `<service-name>`) (can be easily extended for `<function-revision>`)
+	- public key of receiver's leader function: `leaders/<service-name>/<function-revision>/publicKey`
 - What does a function need to decrypt incoming message?
 	- the actual message
 	- the re-encryption key: `members/<leader-pod-id>/reEncryptionKey/<member-pod-id>`
 	- it's own `pre-` private key to decrypt the re-encrypted message
-- other functions in the cluster only need watch for public keys of leader functions: `leaders/*/publicKey`
 ---
 - Data Structures 
-	- leader? 
+	- leader 
 	- member
-		- For encryption: 
-			- only needs the leader public keys
-			- `map[functionRevision][]*pre.PublicKey`
-			- to handle re-election: always use the most recent public key
-		- For decryption: 
-			- needs the re-encryption key
-			- `map[functionRevision][]{LeaderId string, ReEncryptionKey *pre.ReEncryptionKey}`
-			- to handle re-election: use the previous re-encryption keys if decryption fails
 ---
 - If we assume keys in the `etcd` are files then,
 	- watching a key, such as `leaders/<function-revision>/publicParams`, is like reading a file
-	- watching a key prefix, such as `members/<leader-pod-id>/publicKey/*`, is like watching a directory for new files with names `<member-pod-id>`
+	- watching a key prefix, such as `members/<leader-pod-id>/publicKey/*`, is like watching a directory for new files with names `members/<leader-pod-id>/publicKey/<member-pod-id>`
