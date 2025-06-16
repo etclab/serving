@@ -5,9 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/etclab/pre"
@@ -25,6 +29,8 @@ import (
 //	 	ServingPodIP:10.244.0.98
 //	}
 type KeyRegistry struct {
+	StartedLeading atomic.Bool
+
 	client *clientv3.Client
 	// was pod able to connect to etcd?
 	IsEtcdReady chan struct{}
@@ -39,14 +45,23 @@ type KeyRegistry struct {
 	InstanceId string
 	// RevisionId is the unique id for the function
 	// and identifies a deployed revision of the function
-	FunctionId string
+	FunctionId  string
+	ServiceName string
 	// PodId is the unique id for the pod
 	PodId        string
 	KeyPair      *pre.KeyPair
 	PublicParams *pre.PublicParams
 	// Crypto       SambaCrypto
 
-	// state when queue-proxy is a leader
+	// start: state relevant for both leader and member
+	EveryLeaderPublicKey   map[string]*pre.PublicKey
+	muEveryLeaderPublicKey sync.RWMutex
+	//
+	EveryLeaderPublicParams   map[string]*pre.PublicParams
+	muEveryLeaderPublicParams sync.RWMutex
+	// end: state relevant for both leader and member
+
+	// start: state when queue-proxy is a leader
 	LeaPublicParams []*pre.PublicParams
 	LeaKeyPair      []*pre.KeyPair
 	muLeaKeys       sync.RWMutex
@@ -54,10 +69,12 @@ type KeyRegistry struct {
 	LeaMemPublicKeys map[string]*pre.PublicKey // key is member pod id
 	// leader generates re-encryption key using member public keys
 	LeaMemReEncryptionKeys map[string]*pre.ReEncryptionKey
+	// end: state when queue-proxy is a leader
 
-	// state when queue-proxy is a member
+	// start: state when queue-proxy is a member
 	MemKeyPair   map[string]*pre.KeyPair // key is leader pod id
 	muMemKeyPair sync.RWMutex
+	//
 	// MemLeader* means the data for member is received from the leader
 	MemLeaderIds   []string
 	muMemLeaderIds sync.RWMutex
@@ -70,6 +87,28 @@ type KeyRegistry struct {
 	//
 	MemLeaderReEncryptionKey   map[string]*pre.ReEncryptionKey
 	muMemLeaderReEncryptionKey sync.RWMutex
+	// end: state when queue-proxy is a member
+
+	// function chains state
+	functionChains []string
+	// key is function chain id, value is the series of services in the chain
+	functionChainServices map[string]string
+}
+
+func (kr *KeyRegistry) SafeWriteEveryLeaderPublicParams(leaderServiceName string, publicParams *pre.PublicParams) *pre.PublicParams {
+	return mutil.GSafeWriteToMap(leaderServiceName, publicParams, &kr.EveryLeaderPublicParams, &kr.muEveryLeaderPublicParams)
+}
+
+func (kr *KeyRegistry) SafeReadEveryLeaderPublicParams(leaderServiceName string) *pre.PublicParams {
+	return mutil.GSafeReadFromMap(leaderServiceName, kr.EveryLeaderPublicParams, &kr.muEveryLeaderPublicParams)
+}
+
+func (kr *KeyRegistry) SafeWriteEveryLeaderPublicKey(leaderServiceName string, publicKey *pre.PublicKey) *pre.PublicKey {
+	return mutil.GSafeWriteToMap(leaderServiceName, publicKey, &kr.EveryLeaderPublicKey, &kr.muEveryLeaderPublicKey)
+}
+
+func (kr *KeyRegistry) SafeReadEveryLeaderPublicKey(leaderServiceName string) *pre.PublicKey {
+	return mutil.GSafeReadFromMap(leaderServiceName, kr.EveryLeaderPublicKey, &kr.muEveryLeaderPublicKey)
 }
 
 func (kr *KeyRegistry) SafeWriteMemKeyPair(leaderPodId string, keyPair *pre.KeyPair) *pre.KeyPair {
@@ -110,7 +149,7 @@ func (kr *KeyRegistry) SafeWriteMemLeaderId(leaderId string) {
 	kr.MemLeaderIds = append(kr.MemLeaderIds, leaderId)
 }
 
-func (kr *KeyRegistry) SafeReadMemLeaderId(leaderId string) string {
+func (kr *KeyRegistry) SafeReadMemLeaderId() string {
 	kr.muMemLeaderIds.RLock()
 	defer kr.muMemLeaderIds.RUnlock()
 	ids := kr.MemLeaderIds
@@ -481,8 +520,143 @@ func (kr *KeyRegistry) HandleMemberPublicKey(keyStr, leaderPodId string, value [
 	return nil
 }
 
+// fetch public keys of all leaders from etcd
+func (kr *KeyRegistry) FetchEveryExistingLeaderPublicKeys(allLeadersPublicKeyDir string) int64 {
+	logDev := mutil.LogWithPrefix("dev - FetchEveryExistingLeaderPublicKeys")
+
+	pubKeys, err := kr.Client().Get(context.Background(), allLeadersPublicKeyDir, clientv3.WithPrefix())
+	if err != nil {
+		logDev("failed to fetch existing leader public keys from etcd: %v", err)
+		return -1
+	}
+
+	logDev("fetched %d leader public keys from etcd", len(pubKeys.Kvs))
+	for _, kv := range pubKeys.Kvs {
+		value := kv.Value
+		key := kv.Key
+
+		logDev("Received key: %s, value: %s", key, value)
+		keyStr := string(key)
+
+		if strings.Contains(keyStr, "/publicKey/") {
+			err := kr.HandleEveryLeaderPublicKey(keyStr, value)
+			if err != nil {
+				logDev("Failed to save leader public key: %v", err)
+				continue
+			}
+		}
+
+		if strings.Contains(keyStr, "/publicParams/") {
+			err := kr.HandleEveryLeaderPublicParams(keyStr, value)
+			if err != nil {
+				logDev("Failed to save leader public params: %v", err)
+				continue
+			}
+		}
+	}
+
+	logDev("current revision is %d", pubKeys.Header.Revision)
+	return pubKeys.Header.Revision
+}
+
+// every function needs to watch for public keys and public params of all leaders
+// keyPrefix is "leaders/"
+func (kr *KeyRegistry) ListWatchEveryLeaderPublicKeys(keyPrefix string) {
+	logDev := mutil.LogWithPrefix("dev - ListWatchEveryLeaderPublicKeys")
+
+	currentRevision := kr.FetchEveryExistingLeaderPublicKeys(keyPrefix)
+	if currentRevision < 0 {
+		logDev("Failed to fetch existing leader public keys, cannot start watch")
+		return
+	}
+
+	rch := kr.Client().Watch(context.Background(), keyPrefix, clientv3.WithPrefix(), clientv3.WithRev(currentRevision+1))
+	logDev("Watching etcd keys with prefix: %s, rev: %d", keyPrefix, currentRevision+1)
+	for wresp := range rch {
+		if wresp.Canceled {
+			logDev("etcd watch canceled: %v", wresp.Err())
+			return
+		}
+
+		logDev("etcd watch response: %+v", wresp)
+		for _, ev := range wresp.Events {
+			logDev("type: %s, key: %q\n", ev.Type, ev.Kv.Key)
+
+			if ev.Type == clientv3.EventTypePut {
+				key := string(ev.Kv.Key)
+				value := ev.Kv.Value
+
+				logDev("Received PUT event for key: %s, value: %s", key, value)
+				keyStr := string(key)
+
+				if strings.Contains(keyStr, "/publicKey/") {
+					err := kr.HandleEveryLeaderPublicKey(keyStr, value)
+					if err != nil {
+						logDev("Failed to save leader public key: %v", err)
+						continue
+					}
+				}
+
+				if strings.Contains(keyStr, "/publicParams/") {
+					err := kr.HandleEveryLeaderPublicParams(keyStr, value)
+					if err != nil {
+						logDev("Failed to save leader public params: %v", err)
+						continue
+					}
+				}
+			}
+		}
+	}
+}
+
+func (kr *KeyRegistry) HandleEveryLeaderPublicParams(keyStr string, value []byte) error {
+	logDev := mutil.LogWithPrefix("dev - HandleEveryLeaderPublicParams")
+
+	pps := new(samba.PublicParamsSerialized)
+	err := json.NewDecoder(bytes.NewReader(value)).Decode(pps)
+	if err != nil {
+		return fmt.Errorf("failed to decode public params: %v", err)
+	}
+
+	publicParams, err := pps.DeSerialize()
+	if err != nil {
+		return fmt.Errorf("failed to deserialize public param: %v", err)
+	}
+
+	keyStrParts := strings.Split(keyStr, "/")
+	// leaders/<service-name>/<function-revision-name>/publicParams/<leader-pod-id>
+	leaderServiceName := keyStrParts[1]
+
+	kr.SafeWriteEveryLeaderPublicParams(leaderServiceName, publicParams)
+	logDev("Got public params for leader of service %s", leaderServiceName)
+	return nil
+}
+
+func (kr *KeyRegistry) HandleEveryLeaderPublicKey(keyStr string, value []byte) error {
+	logDev := mutil.LogWithPrefix("dev - HandleEveryLeaderPublicKey")
+
+	pks := new(samba.PublicKeySerialized)
+	err := json.NewDecoder(bytes.NewReader(value)).Decode(pks)
+	if err != nil {
+		return fmt.Errorf("failed to decode public key: %v", err)
+	}
+
+	publicKey, err := pks.DeSerialize()
+	if err != nil {
+		return fmt.Errorf("failed to deserialize public key: %v", err)
+	}
+
+	keyStrParts := strings.Split(keyStr, "/")
+	// leaders/<service-name>/<function-revision-name>/publicKey/<leader-pod-id>
+	leaderServiceName := keyStrParts[1]
+
+	kr.SafeWriteEveryLeaderPublicKey(leaderServiceName, publicKey)
+	logDev("Got public key for leader of service %s", leaderServiceName)
+	return nil
+}
+
 // a member function needs to watch for public params and public keys from the leader
-// keyPrefix is "leaders/<function-revision>/public"
+// keyPrefix is "leaders/<service-name>/<function-revision>/public"
 func (kr *KeyRegistry) ListWatchLeaderKeys(keyPrefix, leaderPodId string) {
 	logDev := mutil.LogWithPrefix("dev - ListWatchLeaderKeys")
 
