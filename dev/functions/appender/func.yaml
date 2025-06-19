@@ -1,0 +1,13 @@
+specVersion: 0.36.0
+name: appender
+runtime: go
+registry: docker.io/atosh502
+created: 2025-06-19T14:49:37.877959488-04:00
+invoke: cloudevent
+build:
+  builder: pack
+envs:
+  - name: MESSAGE
+    value: " - Marked by function: `appender`"
+  - name: TYPE  
+    value: "event.appender.functions.knative.dev"
