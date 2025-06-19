@@ -9,7 +9,7 @@ spec:
         autoscaling.knative.dev/min-scale: "3" # at least 3 replicas of first
     spec:
       containers:
-        - image: gcr.io/knative-releases/knative.dev/eventing/cmd/appender
+        - image: atosh502/appender:latest
           env:
             - name: MESSAGE
               value: " - Handled by 0"
@@ -23,7 +23,7 @@ spec:
   template:
     spec:
       containers:
-        - image: gcr.io/knative-releases/knative.dev/eventing/cmd/appender
+        - image: atosh502/appender:latest
           env:
             - name: MESSAGE
               value: " - Handled by 1"
@@ -36,7 +36,7 @@ spec:
   template:
     spec:
       containers:
-        - image: gcr.io/knative-releases/knative.dev/eventing/cmd/appender
+        - image: atosh502/appender:latest
           env:
             - name: MESSAGE
               value: " - Handled by 2"
