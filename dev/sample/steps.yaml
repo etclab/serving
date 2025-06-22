@@ -9,7 +9,7 @@ spec:
         autoscaling.knative.dev/min-scale: "3" # at least 3 replicas of first
     spec:
       containers:
-        - image: atosh502/appender:latest
+        - image: atosh502/appender-ego-sim:latest
           env:
             - name: MESSAGE
               value: " - Handled by 0"
@@ -23,7 +23,7 @@ spec:
   template:
     spec:
       containers:
-        - image: atosh502/appender:latest
+        - image: atosh502/appender-ego-sim:latest
           env:
             - name: MESSAGE
               value: " - Handled by 1"
@@ -36,7 +36,7 @@ spec:
   template:
     spec:
       containers:
-        - image: atosh502/appender:latest
+        - image: atosh502/appender-ego-sim:latest
           env:
             - name: MESSAGE
               value: " - Handled by 2"
