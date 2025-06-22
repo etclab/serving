@@ -9,10 +9,15 @@ spec:
         autoscaling.knative.dev/min-scale: "3" # at least 3 replicas of first
     spec:
       containers:
-        - image: atosh502/appender-ego-sim:latest
+        - image: atosh502/appender-ego:latest
           env:
             - name: MESSAGE
               value: " - Handled by 0"
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
 
 ---
 apiVersion: serving.knative.dev/v1
@@ -23,10 +28,15 @@ spec:
   template:
     spec:
       containers:
-        - image: atosh502/appender-ego-sim:latest
+        - image: atosh502/appender-ego:latest
           env:
             - name: MESSAGE
               value: " - Handled by 1"
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
 ---
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -36,10 +46,15 @@ spec:
   template:
     spec:
       containers:
-        - image: atosh502/appender-ego-sim:latest
+        - image: atosh502/appender-ego:latest
           env:
             - name: MESSAGE
               value: " - Handled by 2"
             - name: TYPE
               value: "samples.http.mod3"
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
 ---

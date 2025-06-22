@@ -17,5 +17,5 @@ cp -r $FUNCTION_DIR/* $SCAFFOLD_DIR/f/
 
 # run the docker build command
 cd $SCAFFOLD_DIR
-DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=../private.pem --target deploy -t "atosh502/appender-ego-sim" --push .
+DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=../private.pem --target deploy -t "atosh502/appender-ego" --push .
 cd -

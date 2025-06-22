@@ -42,5 +42,5 @@ RUN ego bundle function
 # Use the deploy target if you want to deploy your app as a Docker image
 FROM ghcr.io/edgelesssys/ego-deploy:v${egover} AS deploy
 COPY --from=build "/app/function" /
-ENV OE_SIMULATION=1
+ENV OE_SIMULATION=0
 ENTRYPOINT ["ego", "run", "function"]
