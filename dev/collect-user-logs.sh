@@ -16,11 +16,11 @@ kubectl get pods -n $NAMESPACE --no-headers -o custom-columns=":metadata.name" |
   count=${pod_counter["$prefix"]}
 
   # Construct the output log filename
-  log_file="${prefix}${count}.log"
+  log_file="${prefix}-user${count}.log"
 
-  echo "Saving logs from pod $pod_name (container: queue-proxy) to $log_file"
+  echo "Saving logs from pod $pod_name (container: user-container) to $log_file"
 
   # Fetch the logs and write to file
-  kubectl logs "$pod_name" -n $NAMESPACE -c queue-proxy > "$log_file"
+  kubectl logs "$pod_name" -n $NAMESPACE -c user-container > "$log_file"
 
 done
