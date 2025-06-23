@@ -1,0 +1,203 @@
+{
+ "exe": "queue",
+ "key": "private.pem",
+ "debug": true,
+ "heapSize": 512,
+ "executableHeap": false,
+ "productID": 1,
+ "securityVersion": 1,
+ "mounts": [
+    {
+        "source": "/var/run/secrets/kubernetes.io/serviceaccount",
+        "target": "/var/run/secrets/kubernetes.io/serviceaccount",
+        "type": "hostfs",
+        "readOnly": true
+    }
+ ],
+ "env": [
+    {
+        "name": "SERVING_NAMESPACE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_SERVICE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_CONFIGURATION",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_REVISION",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "QUEUE_SERVING_PORT",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "QUEUE_SERVING_TLS_PORT",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "CONTAINER_CONCURRENCY",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "REVISION_TIMEOUT_SECONDS",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "REVISION_RESPONSE_START_TIMEOUT_SECONDS",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "REVISION_IDLE_TIMEOUT_SECONDS",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_POD",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_POD_IP",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_LOGGING_CONFIG",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_LOGGING_LEVEL",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_REQUEST_LOG_TEMPLATE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_ENABLE_REQUEST_LOG",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_REQUEST_METRICS_BACKEND",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_REQUEST_METRICS_REPORTING_PERIOD_SECONDS",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "TRACING_CONFIG_BACKEND",
+        "fromHost": true,
+        "value": ""
+
+    },
+    {
+        "name": "TRACING_CONFIG_ZIPKIN_ENDPOINT",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "TRACING_CONFIG_DEBUG",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "TRACING_CONFIG_SAMPLE_RATE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "USER_PORT",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SYSTEM_NAMESPACE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "METRICS_DOMAIN",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_READINESS_PROBE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "ENABLE_PROFILING",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "SERVING_ENABLE_PROBE_REQUEST_LOG",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "METRICS_COLLECTOR_ADDRESS",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "HOST_IP",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "ENABLE_HTTP2_AUTO_DETECTION",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "ENABLE_HTTP_FULL_DUPLEX",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "ROOT_CA",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "ENABLE_MULTI_CONTAINER_PROBES",
+        "fromHost": true,
+        "value": ""
+    }, 
+    {
+        "name": "KUBERNETES_MASTER",
+        "fromHost": true
+    },
+    {
+        "name": "KUBERNETES_SERVICE_HOST",
+        "fromHost": true
+    },
+    {
+        "name": "KUBERNETES_SERVICE_PORT",
+        "fromHost": true
+    }
+ ],
+ "files": null
+}
