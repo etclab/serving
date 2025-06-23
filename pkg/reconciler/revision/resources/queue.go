@@ -176,6 +176,16 @@ func createQueueResources(cfg *deployment.Config, annotations map[string]string,
 		resourceLimits[corev1.ResourceEphemeralStorage] = limitEphemeralStorage
 	}
 
+	// request sgx device for queue-proxy
+	// resources:
+	//   limits:
+	// 	    sgx.intel.com/epc: "512Ki"
+	// 	    sgx.intel.com/enclave: 1
+	// 	    sgx.intel.com/provision: 1
+	resourceLimits[corev1.ResourceName("sgx.intel.com/epc")] = resource.MustParse("512Ki")
+	resourceLimits[corev1.ResourceName("sgx.intel.com/enclave")] = resource.MustParse("1")
+	resourceLimits[corev1.ResourceName("sgx.intel.com/provision")] = resource.MustParse("1")
+
 	resources := corev1.ResourceRequirements{
 		Requests: resourceRequests,
 	}
