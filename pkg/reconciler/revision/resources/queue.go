@@ -31,6 +31,7 @@ import (
 	"knative.dev/pkg/kmap"
 	"knative.dev/pkg/metrics"
 	"knative.dev/pkg/profiling"
+	"knative.dev/pkg/ptr"
 	"knative.dev/pkg/system"
 	apicfg "knative.dev/serving/pkg/apis/config"
 	"knative.dev/serving/pkg/apis/serving"
@@ -79,18 +80,19 @@ var (
 		ContainerPort: profiling.ProfilingPort,
 	}
 
-	// TODO: look into `queue-proxy`'s threat model and security assumptions
-	// completely disabling security context for now
 	queueSecurityContext = &corev1.SecurityContext{
-		// 	AllowPrivilegeEscalation: ptr.Bool(false),
-		// 	ReadOnlyRootFilesystem:   ptr.Bool(true),
-		// 	RunAsNonRoot:             ptr.Bool(true),
-		// 	Capabilities: &corev1.Capabilities{
-		// 		Drop: []corev1.Capability{"ALL"},
-		// 	},
-		// 	SeccompProfile: &corev1.SeccompProfile{
-		// 		Type: corev1.SeccompProfileTypeRuntimeDefault,
-		// 	},
+		AllowPrivilegeEscalation: ptr.Bool(false),
+		ReadOnlyRootFilesystem:   ptr.Bool(true),
+		// NOTE: other capabilities and seccomp profiles are not relevant
+		// as we're already running as root
+		// for accessing SGX device we need to be root
+		// RunAsNonRoot:             ptr.Bool(true),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
 	}
 )
 
