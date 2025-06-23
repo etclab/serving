@@ -23,7 +23,7 @@ containers:
 - so we copy the Knative function into a `main` scaffold (within directory `scaffold/f`); the `main() scaffold` also includes the `Dockerfile` and the `enclave.json` files
 - `Dockerfile` - build, signs, and packages the function binary in a docker file for running
 - `enclave.json` - has ego specific configs like heapsize, private key and env vars; `env` is important because by default `ego` will not forward the environment variables added by Knative to the function running inside the enclave
-- ensure rsa `private.pem` and `public.pem` exists in the `dev/functions` directory; [see Appendix](#appendix)
+- ensure rsa `private.pem` and `public.pem` exists in the `dev/keys` directory; [see Appendix](#appendix)
 - command to build the docker image and push it to registry (from within scaffold folder): 
 ```bash
 DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=../private.pem --target deploy -t "atosh502/appender-ego-sim" --push .

@@ -1,0 +1,4 @@
+- The keys in this folder will later be used to sign the binaries inside the docker images (for `queue-proxy` and Knative functions)
+- Create a public/private RSA key pair with: 
+    - for `private.pem`: `openssl genrsa -out private.pem 3072`
+    - for `public.pem`: `openssl rsa -in private.pem -outform PEM -pubout -out public.pem`
