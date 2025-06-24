@@ -41,6 +41,7 @@ $ kubectl describe node knative | grep sgx.intel.com
 ```
 
 #### How to configure a local PCCS for your host?
+- Ensure the `sgx-default-qcnl-local` is deployed using: `kubectl apply -f ./dev/sgx/sgx-default-qcnl-local.yaml`
 - Use [docker image provided by edgeless](https://docs.edgeless.systems/ego/reference/attest#your-own-pccs)
 - Run PCCS with: `docker run -p 8081:8081 --name pccs -d ghcr.io/edgelesssys/pccs`
 - Ensure `pccs_url` in `/etc/sgx_default_qcnl.conf` points to: `https://localhost:8081/sgx/certification/v4/`
