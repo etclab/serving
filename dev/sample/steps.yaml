@@ -8,6 +8,10 @@ spec:
       annotations:
         autoscaling.knative.dev/min-scale: "3" # at least 3 replicas of first
     spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
       containers:
         - image: atosh502/appender-ego:latest
           env:
@@ -18,6 +22,11 @@ spec:
               sgx.intel.com/epc: "512Ki"
               sgx.intel.com/enclave: 1
               sgx.intel.com/provision: 1
+          volumeMounts:
+            - name: sgx-default-qcnl-local-volume
+              mountPath: /etc/sgx_default_qcnl.conf
+              subPath: sgx_default_qcnl.conf
+
 
 ---
 apiVersion: serving.knative.dev/v1

@@ -40,6 +40,11 @@ $ kubectl describe node knative | grep sgx.intel.com
   sgx.intel.com/provision  0            0
 ```
 
+#### How to configure a local PCCS for your host?
+- Use [docker image provided by edgeless](https://docs.edgeless.systems/ego/reference/attest#your-own-pccs)
+- Run PCCS with: `docker run -p 8081:8081 --name pccs -d ghcr.io/edgelesssys/pccs`
+- Ensure `pccs_url` in `/etc/sgx_default_qcnl.conf` points to: `https://localhost:8081/sgx/certification/v4/`
+
 ### References
 - [intel sgx device plugin for kubernetes](https://github.com/intel/intel-device-plugins-for-kubernetes/blob/main/cmd/sgx_plugin/README.md)
     - the first installation (Installation using the Operator) doesn't work, in fact any installation using `node-feature-discovery` doesn't work
