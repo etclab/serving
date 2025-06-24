@@ -40,11 +40,20 @@ $ kubectl describe node knative | grep sgx.intel.com
   sgx.intel.com/provision  0            0
 ```
 
-#### How to configure a local PCCS for your host?
-- Ensure the `sgx-default-qcnl-local` is deployed using: `kubectl apply -f ./dev/sgx/sgx-default-qcnl-local.yaml`
-- Use [docker image provided by edgeless](https://docs.edgeless.systems/ego/reference/attest#your-own-pccs)
-- Run PCCS with: `docker run -p 8081:8081 --name pccs -d ghcr.io/edgelesssys/pccs`
-- Ensure `pccs_url` in `/etc/sgx_default_qcnl.conf` points to: `https://localhost:8081/sgx/certification/v4/`
+#### How to configure PCCS url for your pods?
+- By default the `pccs_url` in pods points to the `https://localhost:8081/sgx/certification/v4/`. Since we're running pods inside a minikube cluster the localhost url isn't accessible, so we update it to: `https://host.minikube.internal:8081/sgx/certification/v4/`. This allows pods to access the pccs service running on host at `localhost:8081`.
+- Run: `./update-pccs-url.sh` to load a configmap that updates the `pccs_url` to `https://host.minikube.internal:8081/sgx/certification/v4/` and `use_secure_cert` to `false` in file: `/etc/sgx-default-qcnl.conf` in the pods
+
+#### How to configure the local PCCS (`shs2`) for mininikube?
+- Check if `pccs.service` is running with: `sudo systemctl status pccs`
+- Check logs with: `sudo journalctl -u pccs.service -f`
+- Since we're using `minikube` the default address host's `pccs.service` listen's on won't be reachable from `minikube` pods even after using the `host.minikube.internal:8081` url. 
+- To enable `pccs.service` to accept requests from `minikube` pods, we need to make it listen on the `minikube` host’s IP address.
+- First, find the ip of `host.minikube.internal` by going into minikube node with `minikube ssh` and running: `ping host.minikube.internal`. Let's say the ip is `192.168.58.1`
+- Next, set this ip (`192.168.58.1`) instead of `127.0.0.1` in the `hosts` key of file: `/opt/intel/sgx-dcap-pccs/config/default.json`. Finally, restart the `pccs.service` with: `sudo systemctl status pccs`
+- Alternatives: 
+    - [docker image of PCCS provided by edgeless](https://docs.edgeless.systems/ego/reference/attest#your-own-pccs)
+    - running a separate `pccs.service` at a different port for `minikube` pods
 
 ### References
 - [intel sgx device plugin for kubernetes](https://github.com/intel/intel-device-plugins-for-kubernetes/blob/main/cmd/sgx_plugin/README.md)
