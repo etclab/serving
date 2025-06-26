@@ -31,7 +31,6 @@ import (
 	"knative.dev/pkg/kmap"
 	"knative.dev/pkg/metrics"
 	"knative.dev/pkg/profiling"
-	"knative.dev/pkg/ptr"
 	"knative.dev/pkg/system"
 	apicfg "knative.dev/serving/pkg/apis/config"
 	"knative.dev/serving/pkg/apis/serving"
@@ -81,18 +80,20 @@ var (
 	}
 
 	queueSecurityContext = &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.Bool(false),
-		ReadOnlyRootFilesystem:   ptr.Bool(true),
+		// AllowPrivilegeEscalation: ptr.Bool(true),
+		// disabled read only root filesystem to prevent this error:
+		// - ERROR: dcap_quoteprov: [ERROR]: [QCNL] Error creating directory '/root/.dcap-qcnl/'.
+		// ReadOnlyRootFilesystem: ptr.Bool(false),
 		// NOTE: other capabilities and seccomp profiles are not relevant
 		// as we're already running as root
 		// for accessing SGX device we need to be root
-		// RunAsNonRoot:             ptr.Bool(true),
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-		},
-		SeccompProfile: &corev1.SeccompProfile{
-			Type: corev1.SeccompProfileTypeRuntimeDefault,
-		},
+		// RunAsNonRoot: ptr.Bool(false),
+		// Capabilities: &corev1.Capabilities{
+		// 	Drop: []corev1.Capability{},
+		// },
+		// SeccompProfile: &corev1.SeccompProfile{
+		// 	Type: corev1.SeccompProfileTypeUnconfined,
+		// },
 	}
 )
 

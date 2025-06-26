@@ -24,6 +24,7 @@ metadata:
   annotations:
     knative.dev/example-checksum: "63a13754"
 data:
+  secure-pod-defaults: "enabled"
   _example: |-
     ################################
     #                              #
