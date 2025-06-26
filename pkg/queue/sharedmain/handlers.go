@@ -46,9 +46,11 @@ func mainHandler(
 	logger *zap.SugaredLogger,
 	kr *kregistry.KeyRegistry,
 ) (http.Handler, *pkghandler.Drainer) {
-	target := net.JoinHostPort("127.0.0.1", env.UserPort)
+	// target := net.JoinHostPort("127.0.0.1", env.UserPort)
+	target := net.JoinHostPort("127.0.0.1", "8443") // TODO: read from env
 
-	httpProxy := pkghttp.NewHeaderPruningReverseProxy(target, pkghttp.NoHostOverride, activator.RevisionHeaders, false /* use HTTP */)
+	// httpProxy := pkghttp.NewHeaderPruningReverseProxy(target, pkghttp.NoHostOverride, activator.RevisionHeaders, false /* use HTTP */)
+	httpProxy := pkghttp.NewHeaderPruningReverseProxy(target, pkghttp.NoHostOverride, activator.RevisionHeaders, true /* use HTTPS */)
 	httpProxy.Transport = transport
 	httpProxy.ErrorHandler = pkghandler.Error(logger)
 	httpProxy.BufferPool = netproxy.NewBufferPool()

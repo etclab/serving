@@ -20,10 +20,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"slices"
 
 	"net/http"
@@ -67,6 +70,9 @@ import (
 
 	"github.com/etclab/pre"
 	injection "knative.dev/pkg/injection"
+
+	"github.com/edgelesssys/ego/attestation"
+	"github.com/edgelesssys/ego/enclave"
 )
 
 const (
@@ -94,8 +100,9 @@ const (
 )
 
 type config struct {
-	ContainerConcurrency                int    `split_words:"true" required:"true"`
-	QueueServingPort                    string `split_words:"true" required:"true"`
+	ContainerConcurrency int    `split_words:"true" required:"true"`
+	QueueServingPort     string `split_words:"true" required:"true"`
+	// AttestedTLSPort                     string `split_words:"true"` // optional
 	QueueServingTLSPort                 string `split_words:"true" required:"true"`
 	UserPort                            string `split_words:"true" required:"true"`
 	RevisionTimeoutSeconds              int    `split_words:"true" required:"true"`
@@ -643,13 +650,41 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return d.Transport.RoundTrip(req)
 }
 
+func verifyReport(report attestation.Report) error {
+	// You can either verify the UniqueID or the tuple (SignerID, ProductID, SecurityVersion, Debug).
+	signer, err := hex.DecodeString("36de55e9a3365d9fc0890696a2bd230a9dffbc98e2bf47a029707f8e33e710c6")
+	if err != nil {
+		return errors.New("failed to decode signer ID")
+	}
+
+	if report.SecurityVersion < 2 {
+		return errors.New("invalid security version")
+	}
+	if binary.LittleEndian.Uint16(report.ProductID) != 1234 {
+		return errors.New("invalid product")
+	}
+	if !bytes.Equal(report.SignerID, signer) {
+		return errors.New("invalid signer")
+	}
+
+	// For production, you must also verify that report.Debug == false
+
+	return nil
+}
+
 func buildTransport(env config) http.RoundTripper {
 	maxIdleConns := 1000 // TODO: somewhat arbitrary value for CC=0, needs experimental validation.
 	if env.ContainerConcurrency > 0 {
 		maxIdleConns = env.ContainerConcurrency
 	}
 	// set max-idle and max-idle-per-host to same value since we're always proxying to the same host.
-	transport := pkgnet.NewProxyAutoTransport(maxIdleConns /* max-idle */, maxIdleConns /* max-idle-per-host */)
+	// transport := pkgnet.NewProxyAutoTransport(maxIdleConns /* max-idle */, maxIdleConns /* max-idle-per-host */)
+
+	tlsConfig := enclave.CreateAttestationClientTLSConfig(verifyReport)
+	dialTLSContextFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return pkgnet.DialTLSWithBackOff(ctx, network, addr, tlsConfig)
+	}
+	transport := pkgnet.NewProxyAutoTLSTransport(maxIdleConns, maxIdleConns, dialTLSContextFunc)
 
 	if env.TracingConfigBackend == tracingconfig.None {
 		return transport
