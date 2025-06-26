@@ -16,7 +16,7 @@ data:
       // You can use the Intel PCS or another PCCS to get quote verification collateral.  Retrieval of PCK 
       // Certificates will always use the PCCS described in pccs_url.  When collateral_service is not defined, both 
       // PCK Certs and verification collateral will be retrieved using pccs_url  
-      //,"collateral_service": "https://api.trustedservices.intel.com/sgx/certification/v4/"
+      ,"collateral_service": "https://api.trustedservices.intel.com/sgx/certification/v4/"
 
       // Type of update to TCB Info. Possible value: early, standard. Default is standard.
       // early indicates an early access to updated TCB Info provided as part of a TCB recovery event
