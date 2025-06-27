@@ -50,7 +50,10 @@ spec:
           args: ["-target=activator", "--duration=3m"]
           env:
             - name: SYSTEM_NAMESPACE
-              value: $SYSTEM_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: performance-test-config
+                  key: systemnamespace
             - name: INFLUX_URL
               valueFrom:
                 secretKeyRef:
