@@ -5,8 +5,16 @@ metadata:
 spec:
   template:
     spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
       containers:
         - image: gcr.io/knative-releases/knative.dev/eventing/cmd/event_display
+          volumeMounts:
+            - name: sgx-default-qcnl-local-volume
+              mountPath: /etc/sgx_default_qcnl.conf
+              subPath: sgx_default_qcnl.conf
 ---
 apiVersion: eventing.knative.dev/v1
 kind: Trigger

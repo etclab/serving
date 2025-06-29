@@ -26,8 +26,6 @@ spec:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
-
-
 ---
 apiVersion: serving.knative.dev/v1
 kind: Service
