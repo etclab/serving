@@ -24,4 +24,5 @@ metadata:
 spec:
   # This is the Go import path for the binary that is containerized
   # and substituted here.
-  image: ko://knative.dev/serving/cmd/queue
+  # image: ko://knative.dev/serving/cmd/queue
+  image: docker.io/atosh502/queue-proxy-ego:latest
