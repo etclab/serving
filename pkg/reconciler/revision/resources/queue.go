@@ -354,9 +354,20 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	fullDuplexFeature, fullDuplexExists := rev.Annotations[apicfg.AllowHTTPFullDuplexFeatureKey]
 
 	useQPResourceDefaults := cfg.Features.QueueProxyResourceDefaults == apicfg.Enabled
+
+	// override the queue sidecar image for certain pods
+	queueSidecarImage := cfg.Deployment.QueueSidecarImage
+	ogSidecarImage := cfg.Deployment.OgQueueSidecarImage
+
+	if serviceName, ok := rev.Labels["serving.knative.dev/service"]; ok {
+		if cfg.Deployment.DefaultQueueSidecarServices.Has(serviceName) {
+			queueSidecarImage = ogSidecarImage
+		}
+	}
+
 	c := &corev1.Container{
 		Name:            QueueContainerName,
-		Image:           cfg.Deployment.QueueSidecarImage,
+		Image:           queueSidecarImage,
 		Resources:       createQueueResources(cfg.Deployment, rev.GetAnnotations(), userContainer, useQPResourceDefaults),
 		Ports:           ports,
 		StartupProbe:    nil,

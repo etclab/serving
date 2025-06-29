@@ -40,6 +40,10 @@ const (
 	// QueueSidecarImageKey is the config map key for queue sidecar image.
 	QueueSidecarImageKey = "queue-sidecar-image"
 
+	DefaultQueueSidecarServices = "default-queue-sidecar-services"
+
+	OgQueueSidecarImage = "og-queue-sidecar-image"
+
 	// DeprecatedQueueSidecarImageKey is the config map key for queue sidecar image.
 	DeprecatedQueueSidecarImageKey = "queueSidecarImage"
 
@@ -185,6 +189,9 @@ func NewConfigFromMap(configMap map[string]string) (*Config, error) {
 		cm.AsQuantity("queueSidecarEphemeralStorageLimit", &nc.QueueSidecarEphemeralStorageLimit),
 
 		cm.AsString(QueueSidecarImageKey, &nc.QueueSidecarImage),
+		cm.AsStringSet(DefaultQueueSidecarServices, &nc.DefaultQueueSidecarServices),
+		cm.AsString(OgQueueSidecarImage, &nc.OgQueueSidecarImage),
+
 		cm.AsDuration(ProgressDeadlineKey, &nc.ProgressDeadline),
 		cm.AsDuration(digestResolutionTimeoutKey, &nc.DigestResolutionTimeout),
 		cm.AsStringSet(registriesSkippingTagResolvingKey, &nc.RegistriesSkippingTagResolving),
@@ -265,6 +272,9 @@ type Config struct {
 	// QueueSidecarImage is the name of the image used for the queue sidecar
 	// injected into the revision pod.
 	QueueSidecarImage string
+
+	DefaultQueueSidecarServices sets.Set[string]
+	OgQueueSidecarImage         string
 
 	// Repositories for which tag to digest resolving should be skipped.
 	RegistriesSkippingTagResolving sets.Set[string]
