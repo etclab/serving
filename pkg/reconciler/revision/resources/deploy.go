@@ -58,18 +58,22 @@ var (
 		SubPathExpr: "$(K_INTERNAL_POD_NAMESPACE)_$(K_INTERNAL_POD_NAME)_",
 	}
 
-	// sgxCacheVolume = corev1.Volume{
-	// 	Name: "sgx-cache",
-	// 	VolumeSource: corev1.VolumeSource{
-	// 		EmptyDir: &corev1.EmptyDirVolumeSource{},
-	// 	},
-	// }
+	sgxDefaultQcnlVolume = corev1.Volume{
+		Name: "sgx-default-qcnl-local-volume",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: "sgx-default-qcnl-local",
+				},
+			},
+		},
+	}
 
-	// sgxCacheVolumeMount = corev1.VolumeMount{
-	// 	Name:      sgxCacheVolume.Name,
-	// 	MountPath: "/tmp",
-	// 	ReadOnly:  false,
-	// }
+	sgxDefaultQcnlVolumeMount = corev1.VolumeMount{
+		Name:      sgxDefaultQcnlVolume.Name,
+		MountPath: "/etc/sgx_default_qcnl.conf",
+		SubPath:   "sgx_default_qcnl.conf",
+	}
 
 	varTokenVolume = corev1.Volume{
 		Name: "knative-token-volume",
@@ -188,23 +192,7 @@ func makePodSpec(rev *v1.Revision, cfg *config.Config) (*corev1.PodSpec, error) 
 
 	var extraVolumes []corev1.Volume
 
-	// If the user container has the sgx-default-qcnl-local-volume mounted,
-	// mount it to the queue-proxy container as well.
-	// var sgxVolumeMount *corev1.VolumeMount
-	// for i := range rev.Spec.Containers {
-	// 	for j := range rev.Spec.Containers[i].VolumeMounts {
-	// 		if rev.Spec.Containers[i].VolumeMounts[j].Name == "sgx-default-qcnl-local-volume" {
-	// 			sgxVolumeMount = &rev.Spec.Containers[i].VolumeMounts[j]
-	// 			break
-	// 		}
-	// 	}
-	// 	if sgxVolumeMount != nil {
-	// 		break
-	// 	}
-	// }
-	// if sgxVolumeMount != nil {
-	// 	queueContainer.VolumeMounts = append(queueContainer.VolumeMounts, *sgxVolumeMount)
-	// }
+	// extraVolumes = append(extraVolumes, sgxDefaultQcnlVolume)
 
 	podInfoFeature, podInfoExists := rev.Annotations[apiconfig.QueueProxyPodInfoFeatureKey]
 
@@ -262,13 +250,6 @@ func makePodSpec(rev *v1.Revision, cfg *config.Config) (*corev1.PodSpec, error) 
 	if cfg.Deployment.DefaultAffinityType == deploymentconfig.PreferSpreadRevisionOverNodes && rev.Spec.Affinity == nil {
 		podSpec.Affinity = &corev1.Affinity{PodAntiAffinity: makePreferSpreadRevisionOverNodes(rev.Name)}
 	}
-
-	// podSpec.Volumes = append(podSpec.Volumes, sgxCacheVolume)
-	// for i := range podSpec.Containers {
-	// 	sgxCacheMount := sgxCacheVolumeMount.DeepCopy()
-	// 	podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts,
-	// 		*sgxCacheMount)
-	// }
 
 	return podSpec, nil
 }

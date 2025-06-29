@@ -491,6 +491,12 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 		}},
 	}
 
+	// maybe add the volume too
+	if c.VolumeMounts == nil {
+		c.VolumeMounts = []corev1.VolumeMount{}
+	}
+	c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
+
 	return c, nil
 }
 
