@@ -64,35 +64,3 @@ func startTLSProxy(targetAddr string) {
 	logDev("Reverse proxy starting on %s\n", attestedHttpsListenAddress)
 	log.Fatal(proxyServer.ListenAndServeTLS("", ""))
 }
-
-// // 1. Define the target URL for the backend function service.
-// targetURL, err := url.Parse("http://localhost:8080")
-// if err != nil {
-// 	log.Fatal("Invalid target URL")
-// }
-
-// // 2. Create a reverse proxy.
-// proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-// // 3. Create the TLS config for the proxy's public-facing listener.
-// tlsCfg, err := enclave.CreateAttestationServerTLSConfig()
-// if err != nil {
-// 	fmt.Fprintf(os.Stderr, "failed to create attestation TLS config: %v\n", err)
-// 	os.Exit(1)
-// }
-
-// // 4. Create and configure the HTTPS server for the proxy.
-// proxyServer := &http.Server{
-// 	Addr:      ":8443", // The public-facing HTTPS port
-// 	Handler:   proxy,
-// 	TLSConfig: tlsCfg,
-// }
-
-// fmt.Println("Starting reverse proxy on https://localhost:8443")
-// fmt.Printf("Proxying requests to %s\n", targetURL)
-
-// // 5. Start the proxy server.
-// // ListenAndServeTLS will use the certificates from the TLSConfig.
-// if err := proxyServer.ListenAndServeTLS("", ""); err != nil {
-// 	log.Fatalf("Proxy server failed: %v", err)
-// }
