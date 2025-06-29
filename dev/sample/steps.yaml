@@ -12,7 +12,7 @@ spec:
       - name: sgx-default-qcnl-local-volume
         configMap:
           name: sgx-default-qcnl-local
-      containers:
+      containers: 
         - image: atosh502/appender-ego:latest
           env:
             - name: MESSAGE

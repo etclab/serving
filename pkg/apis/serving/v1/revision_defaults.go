@@ -221,45 +221,39 @@ func (rs *RevisionSpec) defaultSecurityContext(psc *corev1.PodSecurityContext, c
 	}
 
 	if updatedSC.AllowPrivilegeEscalation == nil {
-		// updatedSC.AllowPrivilegeEscalation = ptr.Bool(false)
-		updatedSC.AllowPrivilegeEscalation = ptr.Bool(true)
+		updatedSC.AllowPrivilegeEscalation = ptr.Bool(false)
 	}
 	if psc.SeccompProfile == nil || psc.SeccompProfile.Type == "" {
 		if updatedSC.SeccompProfile == nil {
 			updatedSC.SeccompProfile = &corev1.SeccompProfile{}
 		}
 		if updatedSC.SeccompProfile.Type == "" {
-			// updatedSC.SeccompProfile.Type = corev1.SeccompProfileTypeRuntimeDefault
-			updatedSC.SeccompProfile.Type = corev1.SeccompProfileTypeUnconfined
+			updatedSC.SeccompProfile.Type = corev1.SeccompProfileTypeRuntimeDefault
 		}
 	}
 	if updatedSC.Capabilities == nil {
 		updatedSC.Capabilities = &corev1.Capabilities{}
-		// updatedSC.Capabilities.Drop = []corev1.Capability{"ALL"}
+		updatedSC.Capabilities.Drop = []corev1.Capability{"ALL"}
 		// Default in NET_BIND_SERVICE to allow binding to low-numbered ports.
-		// needsLowPort := false
-		// for _, p := range container.Ports {
-		// 	if p.ContainerPort < 1024 {
-		// 		needsLowPort = true
-		// 		break
-		// 	}
-		// }
-		// if updatedSC.Capabilities.Add == nil && needsLowPort {
-		// 	updatedSC.Capabilities.Add = []corev1.Capability{"NET_BIND_SERVICE"}
-		// }
+		needsLowPort := false
+		for _, p := range container.Ports {
+			if p.ContainerPort < 1024 {
+				needsLowPort = true
+				break
+			}
+		}
+		if updatedSC.Capabilities.Add == nil && needsLowPort {
+			updatedSC.Capabilities.Add = []corev1.Capability{"NET_BIND_SERVICE"}
+		}
 	}
 
 	if psc.RunAsNonRoot == nil {
-		// updatedSC.RunAsNonRoot = ptr.Bool(true)
-		updatedSC.RunAsNonRoot = ptr.Bool(false)
+		updatedSC.RunAsNonRoot = ptr.Bool(true)
 	}
 
-	updatedSC.ReadOnlyRootFilesystem = ptr.Bool(false)
-
-	// if *updatedSC != (corev1.SecurityContext{}) {
-	// 	container.SecurityContext = updatedSC
-	// }
-	container.SecurityContext = updatedSC
+	if *updatedSC != (corev1.SecurityContext{}) {
+		container.SecurityContext = updatedSC
+	}
 }
 
 func applyDefaultContainerNames(containers []corev1.Container, containerNames sets.Set[string], defaultContainerName string) {
