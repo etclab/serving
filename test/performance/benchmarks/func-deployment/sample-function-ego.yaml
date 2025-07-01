@@ -15,7 +15,7 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: appender
+  name: appender_ego
 spec:
   template:
     metadata:
@@ -31,9 +31,14 @@ spec:
         configMap:
           name: sgx-default-qcnl-local
       containers:
-      - image: docker.io/atosh502/appender:bench
+      - image: docker.io/atosh502/appender-ego:bench
+        resources:
+          limits:
+            sgx.intel.com/epc: "512Ki"
+            sgx.intel.com/enclave: 1
+            sgx.intel.com/provision: 1
         volumeMounts:
           - name: sgx-default-qcnl-local-volume
             mountPath: /etc/sgx_default_qcnl.conf
-            subPath: sgx_default_qcnl.conf
+            subPath: sgx_default_qcnl.conf    
       containerConcurrency: 0 # Explicitly set the default, since it might be overridden in CM.

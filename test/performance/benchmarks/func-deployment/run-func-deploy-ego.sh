@@ -25,7 +25,7 @@ kubectl create namespace $NAMESPACE
 
 # deploy the sample function once to ensure the image is pulled and cached
 echo "Deploying the function for the first time..."
-deploy_function "${SCRIPT_DIR}/sample-function.yaml" $NAMESPACE
+deploy_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
 
 POD_NAME=''
 
@@ -35,15 +35,27 @@ for (( i=1; i<=REPEAT; i++ ))
 
         # delete the function
         echo "Deleting the function..."
-        delete_function "${SCRIPT_DIR}/sample-function.yaml" $NAMESPACE
+        delete_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
+
+        # delete the lease
+        echo "Deleting the lease..."
+        kubectl delete leases.coordination.k8s.io --all -n $NAMESPACE
+        sleep 1
+
+        # delete all keys in etcd - so that we don't fetch previous leader function pks
+        echo "Deleting all keys in etcd..."
+        kubectl exec -it -n knative-serving etcd-0 -- etcdctl del functionChainStatic --prefix
+        kubectl exec -it -n knative-serving etcd-0 -- etcdctl del leaders --prefix
+        kubectl exec -it -n knative-serving etcd-0 -- etcdctl del members --prefix
+        sleep 1
 
         # deploy the function
         echo "Deploying the function..."
-        deploy_function "${SCRIPT_DIR}/sample-function.yaml" $NAMESPACE
+        deploy_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
 
         # extract the pod name
         POD_NAME=$(kubectl get pods \
-            -l serving.knative.dev/service=appender \
+            -l serving.knative.dev/service=appender_ego \
             -o jsonpath='{.items[0].metadata.name}' \
             -n $NAMESPACE
         )
@@ -84,4 +96,4 @@ echo "Logs saved to: $LOG_FILE"
 
 # delete the function
 echo "Deleting the function..."
-delete_function "${SCRIPT_DIR}/sample-function.yaml" $NAMESPACE
+delete_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
