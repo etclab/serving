@@ -1,0 +1,3 @@
+# pod deployment time (seconds)
+# function name           min                       max                       mean                      median                    std                      
+appender-ego-debug-false- 10                        11                        10.175                    10.0                      0.3848076442547927       
