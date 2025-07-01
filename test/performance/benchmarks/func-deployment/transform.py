@@ -4,6 +4,13 @@ import argparse
 import csv
 import statistics as stat
 
+# appender-00001-deployment-6f87fcbbb-xwvrh
+# removes the last two unique strings
+def get_func_name(pod_name):
+    parts = pod_name.split('-')
+    parts = parts[:-2]
+    return "-".join(parts)
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -25,7 +32,7 @@ def main():
         all = []
         func_name = 'func-name'
         for row in reader:
-            func_name = row['pod_name'].split('-')[0]
+            func_name = get_func_name(row['pod_name'])[:25]
             
             ready_time = row['pod_ready_time']
             scheduled_time = row['pod_scheduled_time']

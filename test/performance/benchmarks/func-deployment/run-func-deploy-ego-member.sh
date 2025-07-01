@@ -15,17 +15,19 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 DATA_FILE="${RUN_DIR}/run-func-deploy.data"
 echo "pod_name,pod_scheduled_time,pod_ready_time" > "$DATA_FILE"
 
-REPEAT=${REPEAT:-2}
+REPEAT=${REPEAT:-1}
 
 export KO_DOCKER_REPO=docker.io/atosh502
 
 NAMESPACE="default"
+FUNCTION_YAML="${SCRIPT_DIR}/sample-function-ego-member.yaml"
+SERVICE_NAME="appender-ego-member"
 
 kubectl create namespace $NAMESPACE
 
 # deploy the sample function once to ensure the image is pulled and cached
 echo "Deploying the function for the first time..."
-deploy_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
+deploy_function $FUNCTION_YAML $NAMESPACE
 
 POD_NAME=''
 
@@ -35,7 +37,7 @@ for (( i=1; i<=REPEAT; i++ ))
 
         # delete the function
         echo "Deleting the function..."
-        delete_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
+        delete_function $FUNCTION_YAML $NAMESPACE
 
         # delete the lease
         echo "Deleting the lease..."
@@ -51,14 +53,32 @@ for (( i=1; i<=REPEAT; i++ ))
 
         # deploy the function
         echo "Deploying the function..."
-        deploy_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
+        deploy_function $FUNCTION_YAML $NAMESPACE
 
-        # extract the pod name
-        POD_NAME=$(kubectl get pods \
-            -l serving.knative.dev/service=appender-ego \
-            -o jsonpath='{.items[0].metadata.name}' \
+        # extract the member pod name
+        LEADER_POD_NAME=$(kubectl get leases.coordination.k8s.io \
+            -o jsonpath='{.items[0].spec.holderIdentity}' \
             -n $NAMESPACE
         )
+        echo "Leader pod name: $LEADER_POD_NAME"
+
+        ALL_PODS=($(kubectl get pods \
+            -n $NAMESPACE \
+            -l serving.knative.dev/service=${SERVICE_NAME} \
+            -o jsonpath='{.items[*].metadata.name}'
+            )
+        )
+
+        MEMBER_POD_NAMES=()
+        for pod in "${ALL_PODS[@]}"; do
+            if [[ "$pod" != "$LEADER_POD_NAME" ]]; then
+                MEMBER_POD_NAMES+=("$pod")
+            fi
+        done
+
+        # member pod is held by $POD_NAME
+        POD_NAME="${MEMBER_POD_NAMES[0]}"
+        echo "Member pod name: $POD_NAME"
 
         echo "Waiting for metrics for pod '$POD_NAME' in namespace '$NAMESPACE'..."
         POD_SCHEDULED_TIME=''
@@ -96,4 +116,4 @@ echo "Logs saved to: $LOG_FILE"
 
 # delete the function
 echo "Deleting the function..."
-delete_function "${SCRIPT_DIR}/sample-function-ego.yaml" $NAMESPACE
+delete_function $FUNCTION_YAML $NAMESPACE

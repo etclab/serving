@@ -21,3 +21,8 @@
     - Results and logs will be inside `./run/{timestamp}` folder
     - Transform results with: `python3 transform.py ./run/{timestamp}/run-func-deploy.data` out.data
     - Create a file with min,max,mean,std of time taken to deploy a pod
+
+- Measuring the time taken for `member` replica to be ready?
+    - Uses: `sample-function-ego-member.yaml` to deploy two replicas of a function
+    - Measure the time taken for `member` replica to be ready instead of the `leader` replica.
+    - Run benchmark measuring the deployment time of `sample-function-ego-member.yaml` using: `REPEAT=50 ./run-func-deploy-ego-member.sh`
