@@ -11,6 +11,8 @@ PRIVATE_KEY="$KEYS_DIR/private.pem"
 SCAFFOLD_DIR="$1"
 FUNCTION_DIR="$2"
 
+TAG=${TAG:-latest}
+
 # ensure <scaffold-dir>/f exists
 mkdir -p $SCAFFOLD_DIR/f
 
@@ -20,5 +22,5 @@ cp -r $FUNCTION_DIR/* $SCAFFOLD_DIR/f/
 # run the docker build command
 cd $SCAFFOLD_DIR
 DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=$PRIVATE_KEY \
-    --target deploy -t "atosh502/appender-ego" --push .
+    --target deploy -t "atosh502/appender-ego:${TAG}" --push .
 cd -

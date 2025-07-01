@@ -1,3 +1,8 @@
+- How to build an unmodified version of `appender` function?
+  - (the image built below is used for running benchmarks)
+  - Inside the `dev/functions/appender` directory
+    - Run: `func build --image=docker.io/atosh502/appender:bench --push`
+
 # Go Cloud Events Function
 
 Welcome to your new Go Function! The boilerplate function code can be found in [`handle.go`](handle.go). This Function is meant to respond exclusively to [Cloud Events](https://cloudevents.io/), but you can remove the check for this in the function and it will respond just fine to plain vanilla incoming HTTP requests.

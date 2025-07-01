@@ -27,10 +27,13 @@ data:
   # This is the Go import path for the binary that is containerized
   # and substituted here.
   # queue-sidecar-image: ko://knative.dev/serving/cmd/queue
-  queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:latest
+  # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:latest
+  # use a fixed tag instead of `latest` to avoid pulling the latest image
+  queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:bench
 
   # these services will have the og queue sidecar image injected
-  default-queue-sidecar-services: "sequence-display"
+  # default-queue-sidecar-services: "sequence-display"
+  default-queue-sidecar-services: "sequence-display,appender"
   # sidecar image built from main branch without any modification required for 
   # some services which don't require ego-enabled functions or queue-proxy
   og-queue-sidecar-image: docker.io/atosh502/queue-39be6f1d08a095bd076a71d288d295b6:og

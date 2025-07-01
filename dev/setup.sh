@@ -31,6 +31,8 @@ kubectl patch configmap/config-network \
 
 ./dev/setup-etcd.sh
 
+kubectl apply -f ./dev/yaml/lease-roles.yaml
+
 # adds a sample function chain to 
 kubectl wait --for=condition=ready pod/etcd-0 -n knative-serving --timeout=90s
 kubectl exec -it -n knative-serving etcd-0 -- etcdctl put functionChainStatic/0 first/second/third
