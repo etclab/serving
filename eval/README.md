@@ -1,0 +1,33 @@
+- Install
+    - Influxdb
+        - Run: `./eval/s/influx.sh` to setup
+        - Port-forwarded to: `9080`
+        - username: admin, password and token are printed in the terminal
+    - Grafana
+        - Run: `./eval/s/grafana.sh` to setup
+        - Port-forwarded to: `3000`
+        - username: admin, password: admin
+        - Follow the instructions [here to add influxdb as a source](https://github.com/etclab/serving/tree/main/test/performance#local-grafana-dashboards)
+
+- How to install `kube-state-metrics`?
+    - Use: `./s/pminikube.sh` to create a cluster with appropriate cluster settings enabled
+    - Use: `./s/kube-prometheus.sh` to deploy the `kube-prometheus-stack`
+        - this includes: `grafana`, `prometheus`, `kube-state-metrics`, etc
+        - now the default user:password for grafana is: `admin:prom-operator`
+        - if the grafana dashboard takes a long time to load, try opening in incognito browser
+    - References: 
+        - [prometheus-operator-installation](https://prometheus-operator.dev/docs/getting-started/installation/)
+        - [kube-prometheus-stack github](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+        - [kube-state-metrics Pod Metrics](https://github.com/kubernetes/kube-state-metrics/blob/main/docs/metrics/workload/pod-metrics.md) 
+        - [minikube setup for kube-prometheus](https://github.com/prometheus-operator/kube-prometheus/?tab=readme-ov-file#minikube)
+
+- How to measure the time taken for a pod (or containers within a pod) to be ready?
+    - metrics from `kube-state-metrics`'s Metrics API
+    - For pods
+        - Start at: `PodScheduled` (metric name: `kube_pod_status_scheduled_time`)
+        - End at: `Ready` (metric name: `kube_pod_status_ready_time`)
+    - For containers
+        - Start at: `PodScheduled` (metric name: `kube_pod_status_scheduled_time`)
+        - End at: `ContainersReady` (metric name: `kube_pod_status_container_ready_time`)
+    - References
+        - [list of pod conditions](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-conditions)
