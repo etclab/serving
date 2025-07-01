@@ -1,0 +1,3 @@
+# pod deployment time (seconds)
+# function name           min                       max                       mean                      std                      
+autoscale                 1                         2                         1.4666666666666666        0.5016825622427263       
