@@ -32,6 +32,8 @@ spec:
           name: sgx-default-qcnl-local
       containers:
       - image: docker.io/atosh502/appender-ego:debug-false
+        readinessProbe:
+          periodSeconds: 1
         resources:
           limits:
             sgx.intel.com/epc: "512Ki"

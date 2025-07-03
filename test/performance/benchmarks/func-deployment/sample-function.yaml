@@ -32,6 +32,8 @@ spec:
           name: sgx-default-qcnl-local
       containers:
       - image: docker.io/atosh502/appender:bench
+        readinessProbe:
+          periodSeconds: 1
         volumeMounts:
           - name: sgx-default-qcnl-local-volume
             mountPath: /etc/sgx_default_qcnl.conf
