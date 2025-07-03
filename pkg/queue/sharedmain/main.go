@@ -155,6 +155,10 @@ type Env struct {
 
 	// ServingPodIP is the pod ip address
 	ServingPodIP string `split_words:"true" required:"true"`
+
+	LeaderPp string `split_words:"true"` // optional
+	LeaderKp string `split_words:"true"` // optional
+	MemberKp string `split_words:"true"` // optional
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -212,6 +216,7 @@ func TryAcquireLease(d *Defaults) {
 	myId := d.Env.ServingPod
 	leaseLockName := d.Env.ServingRevision // lease lock name is the function revision name
 	leaseLockNamespace := d.Env.ServingNamespace
+	d.KeyRegistry.StaticMemberKeyPair = d.Env.MemberKp
 	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, myId)
 
 	// we use the Lease lock type since edits to Leases are less common
@@ -251,8 +256,30 @@ func TryAcquireLease(d *Defaults) {
 				memberPublicKeyDir := "members/" + myId + "/publicKey"
 				go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
 
-				pp := pre.NewPublicParams()
-				keyPair := pre.KeyGen(pp)
+				var pp *pre.PublicParams
+				var keyPair *pre.KeyPair
+
+				// instead of randomly generating key pair and pp
+				// use pre-generated key pair and pp from env variables
+				leaderPublicParamsSerialized := d.Env.LeaderPp
+				leaderKeyPairSerialized := d.Env.LeaderKp
+
+				pp, err := samba.ParsePublicParams([]byte(leaderPublicParamsSerialized))
+				if err != nil {
+					logDev("Error parsing leader public params from env var: %v", err)
+				}
+				keyPair, err = samba.ParseKeyPair([]byte(leaderKeyPairSerialized))
+				if err != nil {
+					logDev("Error parsing leader key pair from env var: %v", err)
+				}
+
+				if pp == nil || keyPair == nil {
+					logDev("Leader public params or key pair is nil, generating new keys...")
+					pp = pre.NewPublicParams()
+					keyPair = pre.KeyGen(pp)
+				} else {
+					logDev("Using pre-generated leader public params and key pair from env variables")
+				}
 
 				d.KeyRegistry.SafeWriteLeaderKeys(keyPair, pp)
 
@@ -264,7 +291,7 @@ func TryAcquireLease(d *Defaults) {
 				lPublicKeyLabel := "leaders/" + d.KeyRegistry.ServiceName +
 					"/" + d.KeyRegistry.FunctionId + "/publicKey/" + myId
 
-				err := d.KeyRegistry.StorePublicKey(lPublicKeyLabel, keyPair.PK)
+				err = d.KeyRegistry.StorePublicKey(lPublicKeyLabel, keyPair.PK)
 				if err != nil {
 					// TODO: log the error and maybe retry later
 					logDev("Error storing public key in KeyRegistry: %v", err)
@@ -578,6 +605,12 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
+	// who is sending the GET request with nil body?
+	if req.Body == nil || req.ContentLength == 0 {
+		logDev("Request body is empty, skipping decryption logic.")
+		return d.Transport.RoundTrip(req)
+	}
+
 	encBody, err := io.ReadAll(req.Body)
 	if err != nil {
 		logDev("Error reading request body: %v", err)
@@ -685,6 +718,7 @@ func buildTransport(env config) http.RoundTripper {
 	// set max-idle and max-idle-per-host to same value since we're always proxying to the same host.
 	// transport := pkgnet.NewProxyAutoTransport(maxIdleConns /* max-idle */, maxIdleConns /* max-idle-per-host */)
 
+	// here
 	tlsConfig := enclave.CreateAttestationClientTLSConfig(verifyReport)
 	dialTLSContextFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return pkgnet.DialTLSWithBackOff(ctx, network, addr, tlsConfig)

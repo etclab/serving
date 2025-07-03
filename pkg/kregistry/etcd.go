@@ -93,6 +93,9 @@ type KeyRegistry struct {
 	functionChains []string
 	// key is function chain id, value is the series of services in the chain
 	functionChainServices map[string]string
+
+	// static member key pair from environment variable
+	StaticMemberKeyPair string
 }
 
 func (kr *KeyRegistry) SafeWriteEveryLeaderPublicParams(leaderServiceName string, publicParams *pre.PublicParams) *pre.PublicParams {
@@ -762,7 +765,23 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 		kr.SafeWriteMemLeaderPublicParams(leaderPodId, publicParams)
 		logDev("Got public params for leader %s", leaderPodId)
 
-		keyPair := pre.KeyGen(publicParams)
+		var keyPair *pre.KeyPair
+
+		// instead of generating a new key pair for the member
+		// read a static key pair from environment variable
+		memberKeyPairString := kr.StaticMemberKeyPair
+		keyPair, err = samba.ParseKeyPair([]byte(memberKeyPairString))
+		if err != nil {
+			logDev("Failed to parse static member key pair: %v", err)
+		} else {
+			logDev("Parsed static member key pair successfully")
+		}
+
+		if keyPair == nil {
+			logDev("Generating new key pair for member using leader's public params")
+			keyPair = pre.KeyGen(publicParams)
+		}
+
 		kr.SafeWriteMemKeyPair(leaderPodId, keyPair)
 		logDev("Created key pair for member %s", kr.PodId)
 
@@ -811,6 +830,10 @@ func (kr *KeyRegistry) FetchStaticFunctionChains() {
 }
 
 func (kr *KeyRegistry) GetDefaultFunctionChain() []string {
+	if len(kr.functionChains) == 0 {
+		// if there are no function chains, return an empty slice
+		return []string{}
+	}
 	recentChain := kr.functionChains[len(kr.functionChains)-1]
 	servicesStr := kr.functionChainServices[recentChain]
 	return strings.Split(servicesStr, "/")

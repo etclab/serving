@@ -1,9 +1,99 @@
 package samba
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log"
+
 	bls "github.com/cloudflare/circl/ecc/bls12381"
 	"github.com/etclab/pre"
 )
+
+type KeyPairSerialized struct {
+	PK PublicKeySerialized `json:"pk"`
+	SK []byte              `json:"sk"`
+}
+
+func (kps *KeyPairSerialized) Serialize(kp *pre.KeyPair) error {
+	kps.PK.Serialize(kp.PK)
+	skBytes, err := kp.SK.A.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	kps.SK = skBytes
+
+	return nil
+}
+
+func (kps KeyPairSerialized) DeSerialize() (*pre.KeyPair, error) {
+	publicKey, err := kps.PK.DeSerialize()
+	if err != nil {
+		return nil, err
+	}
+
+	A := new(bls.Scalar)
+	log.Printf("-- [DeSerialize] %+v\n", kps.SK)
+	err = A.UnmarshalBinary(kps.SK)
+	if err != nil {
+		log.Printf("-- [DeSerialize] err %+v\n", err)
+		return nil, err
+	}
+
+	secretKey := &pre.SecretKey{
+		A: A,
+	}
+
+	return &pre.KeyPair{
+		PK: publicKey,
+		SK: secretKey,
+	}, nil
+}
+
+func ParseKeyPair(kpBytes []byte) (*pre.KeyPair, error) {
+	kps := new(KeyPairSerialized)
+	err := json.NewDecoder(bytes.NewReader(kpBytes)).Decode(kps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key pair: %v", err)
+	}
+
+	keyPair, err := kps.DeSerialize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize key pair: %v", err)
+	}
+
+	return keyPair, nil
+}
+
+func ParsePublicKey(pkBytes []byte) (*pre.PublicKey, error) {
+	pks := new(PublicKeySerialized)
+	err := json.NewDecoder(bytes.NewReader(pkBytes)).Decode(pks)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode public key: %v", err)
+	}
+
+	publicKey, err := pks.DeSerialize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize public key: %v", err)
+	}
+
+	return publicKey, nil
+}
+
+func ParsePublicParams(ppBytes []byte) (*pre.PublicParams, error) {
+	pps := new(PublicParamsSerialized)
+	err := json.NewDecoder(bytes.NewReader(ppBytes)).Decode(pps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode public params: %v", err)
+	}
+
+	publicParams, err := pps.DeSerialize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize public params: %v", err)
+	}
+
+	return publicParams, nil
+}
 
 type PublicKeySerialized struct {
 	G1toA []byte `json:"g1_to_a"`

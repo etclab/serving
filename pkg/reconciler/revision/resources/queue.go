@@ -31,6 +31,7 @@ import (
 	"knative.dev/pkg/kmap"
 	"knative.dev/pkg/metrics"
 	"knative.dev/pkg/profiling"
+	"knative.dev/pkg/ptr"
 	"knative.dev/pkg/system"
 	apicfg "knative.dev/serving/pkg/apis/config"
 	"knative.dev/serving/pkg/apis/serving"
@@ -488,7 +489,44 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 		}, {
 			Name:  "ENABLE_MULTI_CONTAINER_PROBES",
 			Value: strconv.FormatBool(multiContainerProbingEnabled),
-		}},
+		},
+			// LEADER_PK, LEADER_PP, MEMBER_KP are used as static pre-keys
+			// for function invocation benchmark
+			{
+				Name: "LEADER_KP",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "static-pre-keys",
+						},
+						Key:      "leader_kp",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "LEADER_PP",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "static-pre-keys",
+						},
+						Key:      "leader_pp",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "MEMBER_KP",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "static-pre-keys",
+						},
+						Key:      "member_kp",
+						Optional: ptr.Bool(true),
+					},
+				},
+			},
+		},
 	}
 
 	// maybe add the volume too
