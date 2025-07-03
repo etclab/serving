@@ -1,0 +1,14 @@
+#!/bin/bash
+
+ns=default
+
+LEADER_KP='{"pk":{"g1_to_a":"CcJqircQfaD7W3CeCLX7aB4wB4vyvhv5QctHB4i3aqOSmZNkUxOfYPg06eoTNFQPEVmQ0dCy4D1n8rO/s1SSghbncORkfwnZF699aXWydzkFGq1beQGCv03HLYS6W9lU","g2_to_a":"DeVuF6HziwzC/V7Cl9Y+MyvjiZ8wwlEI2ssi0/Ik5/03fSssm+8VSbBtYYzVk8McA+6X8OIRM+fcJpDSvuAxFD/7ul3EVBk6WEW70FC9yl3GrY97XuOtpGBDmMSgtda2EZ+c2EGhFQst5jw2w3UG4o2XW2rjZsO5SbgGLjIlcI10uaQjuYM05EDO082PK6SMFAq8OZzMEdiznTwKLo5oV72LLjEa52Mn1IPLLLPT4+RZ3gfnF1HEmlNQonNBF1WR"},"sk":"BP2kkaLSUNPixY1OOZSZvjJZaV76STkmFaLeLcOmY4g="}'
+LEADER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
+MEMBER_KP='{"pk":{"g1_to_a":"BgpRnkE1IY8cJ6TS0PiLSxQynthjNRWQ+MsFYsfsXnvtRWgjOy8QpSzKS2dsSCpKCKZ9nNN2XEub4JDfvIvyLIk3PREaEVuqY5KVHueTMHX9nvZ84ue0b87KC8qzhnFj","g2_to_a":"FEW78r/tBTo+/hBXencZj8TXbErPbeQI61upDRThDQ276qwS7Fr38nSC5r4dqXQOAarThYeWiCF20IRohxsvAvCTXrahs6NGntPt8kS73erCtmVlLZBFzVCnuux+bRs9FxTf9wQ0iybFoppghDJpgMDm1mVi/7s/pq4KsFgBCmUFS6y9pZwCMnYUJXdceExyAQloPZ/fG/Lvzs809ZVOkn8RwYtbl23VsoVj8SQYSBQOCrdZ7WlMt2DlXw0aJVBC"},"sk":"SOp8CXdIZ1kHbF8K/CgGlljQhjWgpH7PMz3eqmIGfOc="}'
+
+# static-pre-keys secret is used to provide static keys for function invocation
+kubectl delete secret static-pre-keys -n $ns --ignore-not-found=true
+kubectl create secret generic static-pre-keys -n $ns \
+  --from-literal=leader_kp="${LEADER_KP}" \
+  --from-literal=leader_pp="${LEADER_PP}" \
+  --from-literal=member_kp="${MEMBER_KP}" 
