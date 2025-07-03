@@ -1,7 +1,7 @@
 {
  "exe": "queue",
  "key": "private.pem",
- "debug": false,
+ "debug": true,
  "heapSize": 512,
  "executableHeap": false,
  "productID": 1,
@@ -196,6 +196,18 @@
     },
     {
         "name": "KUBERNETES_SERVICE_PORT",
+        "fromHost": true
+    },
+    {
+        "name": "LEADER_KP",
+        "fromHost": true
+    },
+    {
+        "name": "LEADER_PP",
+        "fromHost": true
+    },
+    {
+        "name": "MEMBER_KP",
         "fromHost": true
     }
  ],

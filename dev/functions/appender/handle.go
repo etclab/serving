@@ -44,8 +44,8 @@ func Handle(context context.Context, inputEvent event.Event) (*event.Event, erro
 		return nil, http.NewResult(400, "got error while unmarshalling data: %w", err)
 	}
 
-	log.Println("Received a new event: ")
-	log.Printf("[%v] %s %s: %+v", inputEvent.Time(), inputEvent.Source(), inputEvent.Type(), data)
+	// log.Println("Received a new event: ")
+	// log.Printf("[%v] %s %s: %+v", inputEvent.Time(), inputEvent.Source(), inputEvent.Type(), data)
 
 	// append eventMsgAppender to message of the data
 	data.Message = data.Message + env.Msg
@@ -63,8 +63,8 @@ func Handle(context context.Context, inputEvent event.Event) (*event.Event, erro
 		outputEvent.SetType(env.Type)
 	}
 
-	log.Println("Transform the event to: ")
-	log.Printf("[%s] %s %s: %+v", outputEvent.Time(), outputEvent.Source(), outputEvent.Type(), data)
+	// log.Println("Transform the event to: ")
+	// log.Printf("[%s] %s %s: %+v", outputEvent.Time(), outputEvent.Source(), outputEvent.Type(), data)
 
 	return &outputEvent, nil
 }
