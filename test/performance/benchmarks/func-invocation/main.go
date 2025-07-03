@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	benchmarkName = "function invocation probe"
+	benchmarkName = "function invocation appender"
 )
 
 var (
@@ -51,10 +51,18 @@ var targets = map[string]struct {
 }{
 	// target name is equal to the function (image name) being invoked
 	// we always fix the activator in front of the function
-	"autoscale": {
+	"appender": {
 		target: vegeta.Target{
-			Method: http.MethodGet,
-			URL:    "http://autoscale.default.svc.cluster.local?sleep=100",
+			Method: http.MethodPost,
+			URL:    "http://appender.default.svc.cluster.local",
+			Body:   []byte(`{"id":0,"message":"Hi"}`),
+			Header: http.Header{
+				"Content-Type":   []string{"application/json"},
+				"Ce-Id":          []string{"1"},
+				"Ce-Specversion": []string{"1.0"},
+				"Ce-Type":        []string{"cloud-event-greeting"},
+				"Ce-Source":      []string{"cloud-event-source"},
+			},
 		},
 		// hitting a Knative Service
 		// going through BOTH the activator and queue-proxy falls in the +10ms range.
@@ -95,6 +103,21 @@ func main() {
 	// Send 1000 QPS (1 per ms) for the given duration with a 30s request timeout.
 	rate := vegeta.Rate{Freq: 1, Per: time.Millisecond}
 	targeter := vegeta.NewStaticTargeter(t.target)
+	// NOTE: enable client to print the response body for debugging
+	// client := &http.Client{
+	// 	Transport: &http.Transport{
+	// 		Proxy: http.ProxyFromEnvironment,
+	// 		DialContext: (&net.Dialer{
+	// 			Timeout:   30 * time.Second,
+	// 			KeepAlive: 30 * time.Second,
+	// 		}).DialContext,
+	// 		MaxIdleConns:          1000,
+	// 		IdleConnTimeout:       90 * time.Second,
+	// 		TLSHandshakeTimeout:   10 * time.Second,
+	// 		ExpectContinueTimeout: 1 * time.Second,
+	// 	},
+	// }
+	// attacker := vegeta.NewAttacker(vegeta.Timeout(30*time.Second), vegeta.Client(client))
 	attacker := vegeta.NewAttacker(vegeta.Timeout(30 * time.Second))
 
 	influxReporter, err := performance.NewInfluxReporter(map[string]string{"target": *target})
@@ -124,6 +147,7 @@ LOOP:
 
 		case res, ok := <-results:
 			if ok {
+				// log.Printf("Received body: %s", string(res.Body))
 				metricResults.Add(res)
 			} else {
 				// If there are no more results, then we're done!

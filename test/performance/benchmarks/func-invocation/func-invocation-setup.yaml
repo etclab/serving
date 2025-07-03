@@ -15,7 +15,7 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: autoscale
+  name: appender
   namespace: default
 spec:
   template:
@@ -27,6 +27,17 @@ spec:
         # Always hook the activator in.
         autoscaling.knative.dev/targetBurstCapacity: "-1"
     spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
       containers:
-      - image: ko://knative.dev/serving/test/test_images/autoscale # TODO: adjust the container name later
+      - image: docker.io/atosh502/appender:bench-no-log
+        env:
+          - name: MESSAGE
+            value: " - Handled by 0"
+        volumeMounts:
+          - name: sgx-default-qcnl-local-volume
+            mountPath: /etc/sgx_default_qcnl.conf
+            subPath: sgx_default_qcnl.conf
       containerConcurrency: 0 # Explicitly set the default, since it might be overridden in CM.

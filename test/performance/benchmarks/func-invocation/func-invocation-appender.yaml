@@ -35,7 +35,7 @@ roleRef:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: func-invocation-autoscale
+  name: func-invocation-appender
   namespace: default
 spec:
   parallelism: 1
@@ -47,7 +47,7 @@ spec:
       containers:
         - name: func-invocation
           image: ko://knative.dev/serving/test/performance/benchmarks/func-invocation
-          args: ["-target=autoscale", "--duration=3m"] # TODO: think about duration setting later
+          args: ["-target=appender", "--duration=3m"] # TODO: think about duration setting later
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:

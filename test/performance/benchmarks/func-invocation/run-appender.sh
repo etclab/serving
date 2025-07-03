@@ -4,7 +4,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 
+timestamp=$(date +%F_%T)
+
 ns=default
+ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+
+mkdir -p "$ARTIFACTS"
 
 function run_job() {
   local name=$1
@@ -31,4 +36,4 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-run_job func-invocation-autoscale "${SCRIPT_DIR}/func-invocation-autoscale.yaml"
+run_job func-invocation-appender "${SCRIPT_DIR}/func-invocation-appender.yaml"
