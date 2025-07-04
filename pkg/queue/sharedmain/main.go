@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"slices"
 
 	"net/http"
@@ -72,7 +71,6 @@ import (
 	injection "knative.dev/pkg/injection"
 
 	"github.com/edgelesssys/ego/attestation"
-	"github.com/edgelesssys/ego/enclave"
 )
 
 const (
@@ -716,14 +714,14 @@ func buildTransport(env config) http.RoundTripper {
 		maxIdleConns = env.ContainerConcurrency
 	}
 	// set max-idle and max-idle-per-host to same value since we're always proxying to the same host.
-	// transport := pkgnet.NewProxyAutoTransport(maxIdleConns /* max-idle */, maxIdleConns /* max-idle-per-host */)
+	transport := pkgnet.NewProxyAutoTransport(maxIdleConns /* max-idle */, maxIdleConns /* max-idle-per-host */)
 
 	// here
-	tlsConfig := enclave.CreateAttestationClientTLSConfig(verifyReport)
-	dialTLSContextFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return pkgnet.DialTLSWithBackOff(ctx, network, addr, tlsConfig)
-	}
-	transport := pkgnet.NewProxyAutoTLSTransport(maxIdleConns, maxIdleConns, dialTLSContextFunc)
+	// tlsConfig := enclave.CreateAttestationClientTLSConfig(verifyReport)
+	// dialTLSContextFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
+	// 	return pkgnet.DialTLSWithBackOff(ctx, network, addr, tlsConfig)
+	// }
+	// transport := pkgnet.NewProxyAutoTLSTransport(maxIdleConns, maxIdleConns, dialTLSContextFunc)
 
 	if env.TracingConfigBackend == tracingconfig.None {
 		return transport
