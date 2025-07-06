@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -93,9 +94,6 @@ type KeyRegistry struct {
 	functionChains []string
 	// key is function chain id, value is the series of services in the chain
 	functionChainServices map[string]string
-
-	// static member key pair from environment variable
-	StaticMemberKeyPair string
 }
 
 func (kr *KeyRegistry) SafeWriteEveryLeaderPublicParams(leaderServiceName string, publicParams *pre.PublicParams) *pre.PublicParams {
@@ -769,7 +767,7 @@ func (kr *KeyRegistry) HandleLeaderKeys(keyStr, leaderPodId string, value []byte
 
 		// instead of generating a new key pair for the member
 		// read a static key pair from environment variable
-		memberKeyPairString := kr.StaticMemberKeyPair
+		memberKeyPairString := os.Getenv("MEMBER_KP")
 		keyPair, err = samba.ParseKeyPair([]byte(memberKeyPairString))
 		if err != nil {
 			logDev("Failed to parse static member key pair: %v", err)
@@ -859,71 +857,107 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	resp.Body.Close()
 	logDev("Response Body (plain) (from user-container): %s", string(plainBytes))
 
-	// first fake-encrypt the response body using placeholder Encrypt function
-	encryptedBytes, err := mutil.FakeEncrypt(plainBytes)
-	if err != nil {
-		logDev("Error encrypting response body: %v", err)
-		return err
-	}
-
-	chainedServices := kr.GetDefaultFunctionChain()
-	currentService := kr.ServiceName
-	currentServiceIndex := slices.Index(chainedServices, currentService)
-	nextServiceIndex := -1
-	if currentServiceIndex >= 0 { // this can be -1
-		nextServiceIndex = currentServiceIndex + 1
-	}
-
-	// later if we can, encrypt the response body for next service in the chain
-	// encrypt request at first (going from first -> second), and at second (going from second -> third)
-	if nextServiceIndex < 0 || nextServiceIndex >= len(chainedServices) {
-		logDev("No next service in the chain, skipping proxy encryption")
+	var encryptedBytes []byte
+	if len(plainBytes) == 0 {
+		logDev("Response body is empty, nothing to encrypt.")
 	} else {
-		nextService := chainedServices[nextServiceIndex]
-		logDev("Encrypting response body for next service in the chain: %s", nextService)
+		logDev("Response Body length: %d", len(plainBytes))
+		functionMode := mutil.GetFunctionMode()
 
-		nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
-		nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
-
-		m := pre.RandomGt()
-		wrappedKey := pre.Encrypt(nextServicePubParams, m, nextServicePubKey)
-		key := pre.KdfGtToAes256(m)
-		cipherText, err := mutil.AESGCMEncrypt(key, plainBytes)
-
-		if err != nil {
-			logDev("Error in AES-GCM encryption: %v", err)
-			return err
+		if functionMode == mutil.FunctionModeEmpty {
+			// fake-encrypt the response body using placeholder Encrypt function
+			logDev("Function mode is undefined, using FakeEncrypt method.")
+			encryptedBytes, err = mutil.FakeEncrypt(plainBytes)
+			if err != nil {
+				logDev("Error encrypting response body: %v", err)
+				return err
+			}
 		}
 
-		var wrappedKeySerialized samba.Ciphertext1Serialized
-		err = wrappedKeySerialized.Serialize(wrappedKey)
-		if err != nil {
-			logDev("Error serializing wrapped key: %v", err)
-			return err
+		if functionMode == mutil.FunctionModeSingle {
+			logDev("Function mode is SINGLE, use CLIENT_PP & CLIENT_PK to encrypt message.")
+
+			pps := os.Getenv("CLIENT_PP")
+			pks := os.Getenv("CLIENT_PK")
+			targetName := "client"
+
+			pp, err := samba.ParsePublicParams([]byte(pps))
+			if err != nil {
+				return fmt.Errorf("failed to parse public params: %v", err.Error())
+			}
+			pk, err := samba.ParsePublicKey([]byte(pks))
+			if err != nil {
+				return fmt.Errorf("failed to parse public key: %v", err.Error())
+			}
+			msgBytes := []byte(`{"id":0,"message":"Hi"}`)
+
+			encryptedBytes, err = mutil.PreEncrypt(pp, pk, msgBytes, targetName)
+			if err != nil {
+				return fmt.Errorf("failed to get default message: %v", err.Error())
+			}
 		}
 
-		sambaMessage := &samba.SambaMessage{
-			// not used right now
-			Target: nextService,
-			// always false because the message is always encrypted for leader's public key
-			// the member's proxy needs to re-encrypt it for the member's public key
-			IsReEncrypted: false,
-			WrappedKey1:   wrappedKeySerialized,
-			Ciphertext:    cipherText,
+		if functionMode == mutil.FunctionModeChain {
+			chainedServices := kr.GetDefaultFunctionChain()
+			currentService := kr.ServiceName
+			currentServiceIndex := slices.Index(chainedServices, currentService)
+			nextServiceIndex := -1
+			if currentServiceIndex >= 0 { // this can be -1
+				nextServiceIndex = currentServiceIndex + 1
+			}
+
+			// later if we can, encrypt the response body for next service in the chain
+			// encrypt request at first (going from first -> second), and at second (going from second -> third)
+			if nextServiceIndex < 0 || nextServiceIndex >= len(chainedServices) {
+				logDev("No next service in the chain, skipping proxy encryption")
+			} else {
+				nextService := chainedServices[nextServiceIndex]
+				logDev("Encrypting response body for next service in the chain: %s", nextService)
+
+				nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
+				nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
+
+				m := pre.RandomGt()
+				wrappedKey := pre.Encrypt(nextServicePubParams, m, nextServicePubKey)
+				key := pre.KdfGtToAes256(m)
+				cipherText, err := mutil.AESGCMEncrypt(key, plainBytes)
+
+				if err != nil {
+					logDev("Error in AES-GCM encryption: %v", err)
+					return err
+				}
+
+				var wrappedKeySerialized samba.Ciphertext1Serialized
+				err = wrappedKeySerialized.Serialize(wrappedKey)
+				if err != nil {
+					logDev("Error serializing wrapped key: %v", err)
+					return err
+				}
+
+				sambaMessage := &samba.SambaMessage{
+					// not used right now
+					Target: nextService,
+					// always false because the message is always encrypted for leader's public key
+					// the member's proxy needs to re-encrypt it for the member's public key
+					IsReEncrypted: false,
+					WrappedKey1:   wrappedKeySerialized,
+					Ciphertext:    cipherText,
+				}
+
+				encryptedBytes, err = json.Marshal(sambaMessage)
+				if err != nil {
+					logDev("Error marshalling wrapped message: %v", err)
+					return err
+				}
+
+				// signal that we encrypted the response body
+				resp.Header.Set("X-Queue-Encrypted", "true")
+			}
 		}
 
-		encryptedBytes, err = json.Marshal(sambaMessage)
-		if err != nil {
-			logDev("Error marshalling wrapped message: %v", err)
-			return err
-		}
-
-		// signal that we encrypted the response body
-		resp.Header.Set("X-Queue-Encrypted", "true")
+		logDev("Response Body (encrypted): %s", string(encryptedBytes))
+		logDev("Response Body length: %d", len(encryptedBytes))
 	}
-
-	logDev("Response Body (encrypted): %s", string(encryptedBytes))
-	logDev("Response Body length: %d", len(encryptedBytes))
 
 	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))
 	resp.ContentLength = int64(len(encryptedBytes))

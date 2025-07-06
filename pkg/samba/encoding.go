@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	bls "github.com/cloudflare/circl/ecc/bls12381"
 	"github.com/etclab/pre"
@@ -33,10 +32,8 @@ func (kps KeyPairSerialized) DeSerialize() (*pre.KeyPair, error) {
 	}
 
 	A := new(bls.Scalar)
-	log.Printf("-- [DeSerialize] %+v\n", kps.SK)
 	err = A.UnmarshalBinary(kps.SK)
 	if err != nil {
-		log.Printf("-- [DeSerialize] err %+v\n", err)
 		return nil, err
 	}
 

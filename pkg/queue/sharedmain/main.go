@@ -157,6 +157,10 @@ type Env struct {
 	LeaderPp string `split_words:"true"` // optional
 	LeaderKp string `split_words:"true"` // optional
 	MemberKp string `split_words:"true"` // optional
+
+	ClientPp     string `split_words:"true"` // optional
+	ClientPk     string `split_words:"true"` // optional
+	FunctionMode string `split_words:"true"` // optional
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -214,7 +218,6 @@ func TryAcquireLease(d *Defaults) {
 	myId := d.Env.ServingPod
 	leaseLockName := d.Env.ServingRevision // lease lock name is the function revision name
 	leaseLockNamespace := d.Env.ServingNamespace
-	d.KeyRegistry.StaticMemberKeyPair = d.Env.MemberKp
 	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, myId)
 
 	// we use the Lease lock type since edits to Leases are less common
@@ -592,6 +595,52 @@ type DebugTransport struct {
 	KeyRegistry *kregistry.KeyRegistry
 }
 
+func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, error) {
+	logDev := mutil.LogWithPrefix("dev - decryptSambaMessage")
+
+	var sambaMessage *samba.SambaMessage
+	if err := json.Unmarshal(encryptedBytes, &sambaMessage); err != nil {
+		logDev("Invalid message format: %v", err)
+		return nil, err
+	}
+
+	var err error
+	var myPublicParams *pre.PublicParams
+	var myKeyPair *pre.KeyPair
+	var reEncKey *pre.ReEncryptionKey
+
+	isLeader := d.KeyRegistry.StartedLeading.Load()
+	if isLeader {
+		// no need for re-encryption, just decrypt
+		reEncKey = nil
+		myPublicParams, myKeyPair = d.KeyRegistry.SafeReadLeaderKeys()
+	} else {
+		// assuming I am a member
+		myLeaderId := d.KeyRegistry.SafeReadMemLeaderId()
+		// get the re-encryption key
+		reEncKey = d.KeyRegistry.SafeReadMemLeaderReEncryptionKey(myLeaderId)
+
+		myKeyPair = d.KeyRegistry.SafeReadMemKeyPair(myLeaderId)
+		myPublicParams = d.KeyRegistry.SafeReadMemLeaderPublicParams(myLeaderId)
+
+		// re-encrypt the ciphertext
+		sambaMessage, err = mutil.ReEncrypt(myPublicParams, reEncKey, sambaMessage)
+		if err != nil {
+			logDev("Error re-encrypting message: %v", err)
+			return nil, err
+		}
+	}
+
+	// decrypt the ciphertext, get the plaintext
+	plaintext, err := mutil.Decrypt(myPublicParams, myKeyPair.SK, sambaMessage)
+	if err != nil {
+		logDev("Error decrypting message: %v", err)
+		return nil, err
+	}
+
+	return plaintext, nil
+}
+
 // decrypts the response for user-container
 func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logDev := mutil.LogWithPrefix("dev - RoundTrip")
@@ -617,57 +666,45 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Body.Close()
 	logDev("Request Body (encrypted): %s", string(encBody))
 
-	plaintext, err := mutil.FakeDecrypt(encBody)
-	if err != nil {
-		logDev("Error decrypting request body: %v", err)
-		return nil, err
-	}
+	var plaintext []byte
 
-	chainedServices := d.KeyRegistry.GetDefaultFunctionChain()
-	currentService := d.KeyRegistry.ServiceName
-	currentServiceIndex := slices.Index(chainedServices, currentService)
-	prevServiceIndex := currentServiceIndex - 1
-
-	if prevServiceIndex < 0 {
-		logDev("Message to `first` service doesn't arrive as encrypted, no decryption needed.")
-	} else {
-		var sambaMessage *samba.SambaMessage
-		if err := json.Unmarshal(encBody, &sambaMessage); err != nil {
-			logDev("Invalid message format: %v", err)
+	functionMode := mutil.GetFunctionMode()
+	if functionMode == mutil.FunctionModeEmpty {
+		logDev("Function mode is undefined, using FakeDecrypt method.")
+		plaintext, err = mutil.FakeDecrypt(encBody)
+		if err != nil {
+			logDev("Error decrypting request body: %v", err)
 			return nil, err
 		}
+	}
 
-		var myPublicParams *pre.PublicParams
-		var myKeyPair *pre.KeyPair
-		var reEncKey *pre.ReEncryptionKey
-
-		isLeader := d.KeyRegistry.StartedLeading.Load()
-		if isLeader {
-			// no need for re-encryption, just decrypt
-			reEncKey = nil
-			myPublicParams, myKeyPair = d.KeyRegistry.SafeReadLeaderKeys()
-		} else {
-			// assuming I am a member
-			myLeaderId := d.KeyRegistry.SafeReadMemLeaderId()
-			// get the re-encryption key
-			reEncKey = d.KeyRegistry.SafeReadMemLeaderReEncryptionKey(myLeaderId)
-
-			myKeyPair = d.KeyRegistry.SafeReadMemKeyPair(myLeaderId)
-			myPublicParams = d.KeyRegistry.SafeReadMemLeaderPublicParams(myLeaderId)
-
-			// re-encrypt the ciphertext
-			sambaMessage, err = mutil.ReEncrypt(myPublicParams, reEncKey, sambaMessage)
-			if err != nil {
-				logDev("Error re-encrypting message: %v", err)
-				return nil, err
-			}
-		}
+	if functionMode == mutil.FunctionModeSingle {
+		logDev("Function mode is SINGLE, use my secret key to decrypt message.")
 
 		// decrypt the ciphertext, get the plaintext
-		plaintext, err = mutil.Decrypt(myPublicParams, myKeyPair.SK, sambaMessage)
+		plaintext, err = d.decryptSambaMessage(encBody)
 		if err != nil {
 			logDev("Error decrypting message: %v", err)
 			return nil, err
+		}
+	}
+
+	if functionMode == mutil.FunctionModeChain {
+		logDev("Function mode is CHAIN, getting the function chain from KeyRegistry.")
+		chainedServices := d.KeyRegistry.GetDefaultFunctionChain()
+		currentService := d.KeyRegistry.ServiceName
+		currentServiceIndex := slices.Index(chainedServices, currentService)
+		prevServiceIndex := currentServiceIndex - 1
+
+		if prevServiceIndex < 0 {
+			logDev("Message to `first` service doesn't arrive as encrypted, no decryption needed.")
+		} else {
+			// decrypt the ciphertext, get the plaintext
+			plaintext, err = d.decryptSambaMessage(encBody)
+			if err != nil {
+				logDev("Error decrypting message: %v", err)
+				return nil, err
+			}
 		}
 	}
 

@@ -29,7 +29,7 @@ data:
   # queue-sidecar-image: ko://knative.dev/serving/cmd/queue
   # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:latest
   # use a fixed tag instead of `latest` to avoid pulling the latest image
-  queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:bench
+  queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:latest
   # this image is built with debug: false in enclave.json
   # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:debug-false
 

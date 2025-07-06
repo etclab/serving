@@ -525,6 +525,39 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 						Optional: ptr.Bool(true),
 					},
 				},
+			}, {
+				Name: "CLIENT_PK",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "static-pre-keys",
+						},
+						Key:      "client_pk",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "CLIENT_PP",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "static-pre-keys",
+						},
+						Key:      "client_pp",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "FUNCTION_MODE",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "static-pre-keys",
+						},
+						Key:      "function_mode",
+						Optional: ptr.Bool(true),
+					},
+				},
 			},
 		},
 	}

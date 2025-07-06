@@ -209,6 +209,18 @@
     {
         "name": "MEMBER_KP",
         "fromHost": true
+    },
+    {
+        "name": "CLIENT_PK",
+        "fromHost": true
+    },
+    {
+        "name": "CLIENT_PP",
+        "fromHost": true
+    },
+    {
+        "name": "FUNCTION_MODE",
+        "fromHost": true
     }
  ],
  "files": null

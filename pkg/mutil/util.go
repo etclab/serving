@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 
 	bls "github.com/cloudflare/circl/ecc/bls12381"
@@ -18,7 +18,7 @@ const NonceSize = 12
 
 func LogWithPrefix(prefix string) func(format string, v ...interface{}) {
 	return func(format string, v ...interface{}) {
-		log.Printf("["+prefix+"] "+format, v...)
+		// log.Printf("["+prefix+"] "+format, v...)
 	}
 }
 
@@ -135,4 +135,41 @@ func ReEncrypt(pp *pre.PublicParams, rk *pre.ReEncryptionKey, m *samba.SambaMess
 		WrappedKey2:   wk2,
 		Ciphertext:    m.Ciphertext,
 	}, nil
+}
+
+// plainBytes is encrypted with (pp & pk - public params & public key)
+// of the target service
+func PreEncrypt(pp *pre.PublicParams, pk *pre.PublicKey, plainBytes []byte,
+	target string) (encryptedBytes []byte, err error) {
+	m := pre.RandomGt()
+	wrappedKey := pre.Encrypt(pp, m, pk)
+	key := pre.KdfGtToAes256(m)
+
+	cipherText, err := AESGCMEncrypt(key, plainBytes)
+	if err != nil {
+		return nil, fmt.Errorf("AESGCMEncrypt failed: %v", err)
+	}
+
+	var wrappedKeySerialized samba.Ciphertext1Serialized
+	err = wrappedKeySerialized.Serialize(wrappedKey)
+	if err != nil {
+		return nil, fmt.Errorf("wrappedKey serialization failed: %v", err)
+	}
+
+	sambaMessage := &samba.SambaMessage{
+		// not used right now
+		Target: target,
+		// always false because the message is always encrypted for leader's public key
+		// the member's proxy needs to re-encrypt it for the member's public key
+		IsReEncrypted: false,
+		WrappedKey1:   wrappedKeySerialized,
+		Ciphertext:    cipherText,
+	}
+
+	encryptedBytes, err = json.Marshal(sambaMessage)
+	if err != nil {
+		return nil, fmt.Errorf("json.Marshal failed: %v", err)
+	}
+
+	return encryptedBytes, nil
 }
