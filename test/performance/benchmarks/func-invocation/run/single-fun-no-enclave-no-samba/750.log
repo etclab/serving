@@ -1,0 +1,13 @@
+{"level":"info","ts":1751734699.6744654,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/07/05 16:58:19 Starting func invocation probe for target: appender
+2025/07/05 16:58:19 Using rate: 750
+2025/07/05 17:03:19 Shutting down InfluxReporter
+Requests      [total, rate, throughput]         225001, 750.00, 750.00
+Duration      [total, attack, wait]             5m0s, 5m0s, 3.022ms
+Latencies     [min, mean, 50, 90, 95, 99, max]  520.329µs, 3.32ms, 3.343ms, 3.956ms, 4.168ms, 5.161ms, 22.766ms
+Bytes In      [total, mean]                     8550038, 38.00
+Bytes Out     [total, mean]                     5175023, 23.00
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      200:225001  
+Error Set:
+2025/07/05 17:03:19 SLA 1 failed. P95 latency is not in 100000000-110000000ms time range: 4.168468ms

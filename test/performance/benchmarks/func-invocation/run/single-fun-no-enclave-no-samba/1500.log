@@ -1,0 +1,14 @@
+{"level":"info","ts":1751735756.7694578,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/07/05 17:15:56 Starting func invocation probe for target: appender
+2025/07/05 17:15:56 Using rate: 1500
+2025/07/05 17:21:26 Shutting down InfluxReporter
+Requests      [total, rate, throughput]         450000, 1499.59, 1363.27
+Duration      [total, attack, wait]             5m30s, 5m0s, 30s
+Latencies     [min, mean, 50, 90, 95, 99, max]  482.392µs, 125.523ms, 102.207ms, 231.225ms, 280.373ms, 392.633ms, 30.001s
+Bytes In      [total, mean]                     17099582, 38.00
+Bytes Out     [total, mean]                     10349747, 23.00
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      0:11  200:449989  
+Error Set:
+Post "http://appender.default.svc.cluster.local": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2025/07/05 17:21:26 SLA 1 failed. P95 latency is not in 100000000-110000000ms time range: 280.373491ms

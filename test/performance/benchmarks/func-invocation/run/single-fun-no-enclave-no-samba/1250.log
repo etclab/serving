@@ -1,0 +1,16 @@
+{"level":"info","ts":1751735380.808052,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/07/05 17:09:40 Starting func invocation probe for target: appender
+2025/07/05 17:09:40 Using rate: 1250
+Requests      [total, rate, throughput]         375000, 1250.00, 1136.34
+Duration      [total, attack, wait]             5m30s, 5m0s, 30.001s
+Latencies     [min, mean, 50, 90, 95, 99, max]  679.854µs, 38.668ms, 28.306ms, 81.471ms, 101.237ms, 168.204ms, 30.001s
+2025/07/05 17:15:10 SLA 1 passed. P95 latency is in 100000000-110000000ms time range
+2025/07/05 17:15:10 SLA 2 passed. vegeta total request is 375000
+2025/07/05 17:15:10 Dataplane probe test finished
+2025/07/05 17:15:10 Shutting down InfluxReporter
+Bytes In      [total, mean]                     14249696, 38.00
+Bytes Out     [total, mean]                     8624816, 23.00
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      0:8  200:374992  
+Error Set:
+Post "http://appender.default.svc.cluster.local": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
