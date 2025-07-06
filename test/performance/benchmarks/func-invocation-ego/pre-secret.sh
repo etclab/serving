@@ -2,13 +2,38 @@
 
 ns=default
 
-LEADER_KP='{"pk":{"g1_to_a":"CcJqircQfaD7W3CeCLX7aB4wB4vyvhv5QctHB4i3aqOSmZNkUxOfYPg06eoTNFQPEVmQ0dCy4D1n8rO/s1SSghbncORkfwnZF699aXWydzkFGq1beQGCv03HLYS6W9lU","g2_to_a":"DeVuF6HziwzC/V7Cl9Y+MyvjiZ8wwlEI2ssi0/Ik5/03fSssm+8VSbBtYYzVk8McA+6X8OIRM+fcJpDSvuAxFD/7ul3EVBk6WEW70FC9yl3GrY97XuOtpGBDmMSgtda2EZ+c2EGhFQst5jw2w3UG4o2XW2rjZsO5SbgGLjIlcI10uaQjuYM05EDO082PK6SMFAq8OZzMEdiznTwKLo5oV72LLjEa52Mn1IPLLLPT4+RZ3gfnF1HEmlNQonNBF1WR"},"sk":"BP2kkaLSUNPixY1OOZSZvjJZaV76STkmFaLeLcOmY4g="}'
+# client is the vegeta load generator (key pair, public key, public params)
+CLIENT_KP='{"pk":{"g1_to_a":"AG/wwus8WJWrxzjJhhpRncAAhAdFIlpGu5yvuvKngNYEo9yn7j/GuaZkuCXuhksyBYjctO1o6Ez2x6sl8IcXcQqk1+ifh2yhDxv3Np1pW7HhLnawvU4ATaLEaAtJN9nJ","g2_to_a":"AE7YLZS2tVEJCIPL5eTeFDooSe9yvJN7+8qXS1oppCBd6fgoU0jt9sIEYSQeth6/AuNqd0xGmHpdxmudUJAzZ8KPV52nDyCy4mcYs5gErgtz+K+ptSdUT/E9PC9hAwMiErn3MySvqbqmIcJcTS7bPQN7xf39NalAbF17yTBG0OtirBFpdW5QU8IKm+OylgIGF50JhonM0cxO90ovnx7IP47rgtdbvrccswHX12jQIJMZC9JYbpTn3FiZYRd11m6C"},"sk":"GAMl6pg83q06VkwUfLWR0k0O/xgTqP72fwSEJ0TE5x0="}'
+CLIENT_PK='{"g1_to_a":"AG/wwus8WJWrxzjJhhpRncAAhAdFIlpGu5yvuvKngNYEo9yn7j/GuaZkuCXuhksyBYjctO1o6Ez2x6sl8IcXcQqk1+ifh2yhDxv3Np1pW7HhLnawvU4ATaLEaAtJN9nJ","g2_to_a":"AE7YLZS2tVEJCIPL5eTeFDooSe9yvJN7+8qXS1oppCBd6fgoU0jt9sIEYSQeth6/AuNqd0xGmHpdxmudUJAzZ8KPV52nDyCy4mcYs5gErgtz+K+ptSdUT/E9PC9hAwMiErn3MySvqbqmIcJcTS7bPQN7xf39NalAbF17yTBG0OtirBFpdW5QU8IKm+OylgIGF50JhonM0cxO90ovnx7IP47rgtdbvrccswHX12jQIJMZC9JYbpTn3FiZYRd11m6C"}'
+CLIENT_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
+
+# leader of the chain
+LEADER_KP='{"pk":{"g1_to_a":"GI2MQLdca2zEshws+rHnXX30+Y3nbWeuHkxyHX4y/0wPBD8SpDv3bLmGZcY+DWqgAHi+USuucatE+kjr9WiXa7ltYYZH/BghL4ZzHGbePkht+jyt1STK/olI4YTSZFsB","g2_to_a":"EEWBpuXIL+QCDvD007b0N712SDpaKj19WTX0Sv1s8BuwwoOED09Lq9UDMGVsnJQtEcdMBkmLFinpHW5zr2ZCH1tb8lBSRms0xzAewRQ1+VLyhdCZrj9wVo9s1gb3r48GAVZ5GcxMbvVi5PDu1jHXiIauoEXui3VYtADMCVl+VlMKNneLVao2qYVg8tqtzOeBCk2BKB36jLPvAmyAxpKTJ5u+tph5XNo4y5+sqx4O/Ci/piNzPeACC3yHyE9bpSaX"},"sk":"bSt58suS+D4WmPSsJ2CqEIul/clZz7inBqaHpdz7qbk="}'
+LEADER_PK='{"g1_to_a":"GI2MQLdca2zEshws+rHnXX30+Y3nbWeuHkxyHX4y/0wPBD8SpDv3bLmGZcY+DWqgAHi+USuucatE+kjr9WiXa7ltYYZH/BghL4ZzHGbePkht+jyt1STK/olI4YTSZFsB","g2_to_a":"EEWBpuXIL+QCDvD007b0N712SDpaKj19WTX0Sv1s8BuwwoOED09Lq9UDMGVsnJQtEcdMBkmLFinpHW5zr2ZCH1tb8lBSRms0xzAewRQ1+VLyhdCZrj9wVo9s1gb3r48GAVZ5GcxMbvVi5PDu1jHXiIauoEXui3VYtADMCVl+VlMKNneLVao2qYVg8tqtzOeBCk2BKB36jLPvAmyAxpKTJ5u+tph5XNo4y5+sqx4O/Ci/piNzPeACC3yHyE9bpSaX"}'
 LEADER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
-MEMBER_KP='{"pk":{"g1_to_a":"BgpRnkE1IY8cJ6TS0PiLSxQynthjNRWQ+MsFYsfsXnvtRWgjOy8QpSzKS2dsSCpKCKZ9nNN2XEub4JDfvIvyLIk3PREaEVuqY5KVHueTMHX9nvZ84ue0b87KC8qzhnFj","g2_to_a":"FEW78r/tBTo+/hBXencZj8TXbErPbeQI61upDRThDQ276qwS7Fr38nSC5r4dqXQOAarThYeWiCF20IRohxsvAvCTXrahs6NGntPt8kS73erCtmVlLZBFzVCnuux+bRs9FxTf9wQ0iybFoppghDJpgMDm1mVi/7s/pq4KsFgBCmUFS6y9pZwCMnYUJXdceExyAQloPZ/fG/Lvzs809ZVOkn8RwYtbl23VsoVj8SQYSBQOCrdZ7WlMt2DlXw0aJVBC"},"sk":"SOp8CXdIZ1kHbF8K/CgGlljQhjWgpH7PMz3eqmIGfOc="}'
+
+# member of the chain
+MEMBER_KP='{"pk":{"g1_to_a":"FkEttU1JHgpey6tR3J+SB5LmRGaR3Fo8BPLhm8JIQ7cXdXMOV7rUExycW6WekVq3Aq64BzPFi0fSDyNUDGPJKS9+kkMLgcFr/lElwjUGkqXSstwDG5K55NMU/FZDeBKd","g2_to_a":"Dnk+By/rcvrkAdDJSrClYjLGeoOfjj78o+bfi4Z7yT4Xu5U/UsUJWaQjVY1+Bkc6GVULH/f9AriGpd1rYLel4rz3qxLuEkx0JrwDpMh1DLkIIuE8slPCaGb3flqLGXJuA04cxE6M0A6JTEAqftu2R+rHww2Zj6nbAJu43Q3Al8214FhUwTPmhE7KuG3f1yWJFhSvLW2jhIKH0F2XDBhse4qIGBY5gtW3FtRq/R4T+y2sXfcfYee4gpRRaYt6mJfu"},"sk":"BHV+ZaRA/489V2tXPyVDK22DNn4p66JObNfLG7iyOaI="}'
+MEMBER_PK='{"g1_to_a":"FkEttU1JHgpey6tR3J+SB5LmRGaR3Fo8BPLhm8JIQ7cXdXMOV7rUExycW6WekVq3Aq64BzPFi0fSDyNUDGPJKS9+kkMLgcFr/lElwjUGkqXSstwDG5K55NMU/FZDeBKd","g2_to_a":"Dnk+By/rcvrkAdDJSrClYjLGeoOfjj78o+bfi4Z7yT4Xu5U/UsUJWaQjVY1+Bkc6GVULH/f9AriGpd1rYLel4rz3qxLuEkx0JrwDpMh1DLkIIuE8slPCaGb3flqLGXJuA04cxE6M0A6JTEAqftu2R+rHww2Zj6nbAJu43Q3Al8214FhUwTPmhE7KuG3f1yWJFhSvLW2jhIKH0F2XDBhse4qIGBY5gtW3FtRq/R4T+y2sXfcfYee4gpRRaYt6mJfu"}'
+MEMBER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
+
+# function mode can be SINGLE or CHAIN
+# SINGLE meaning client invokes a single function directly and expects a response
+# CHAIN meaning client invokes a function that in turn invokes another function
+FUNCTION_MODE='SINGLE'
+# FUNCTION_MODE=''
+
 
 # static-pre-keys secret is used to provide static keys for function invocation
 kubectl delete secret static-pre-keys -n $ns --ignore-not-found=true
 kubectl create secret generic static-pre-keys -n $ns \
   --from-literal=leader_kp="${LEADER_KP}" \
+  --from-literal=leader_pk="${LEADER_PK}" \
   --from-literal=leader_pp="${LEADER_PP}" \
-  --from-literal=member_kp="${MEMBER_KP}" 
+  --from-literal=member_kp="${MEMBER_KP}" \
+  --from-literal=member_pk="${MEMBER_PK}" \
+  --from-literal=member_pp="${MEMBER_PP}" \
+  --from-literal=client_kp="${CLIENT_KP}" \
+  --from-literal=client_pk="${CLIENT_PK}" \
+  --from-literal=client_pp="${CLIENT_PP}" \
+  --from-literal=function_mode="${FUNCTION_MODE}" 

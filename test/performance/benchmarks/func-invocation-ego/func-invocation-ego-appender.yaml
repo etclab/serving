@@ -47,8 +47,7 @@ spec:
       containers:
         - name: func-invocation-ego
           image: ko://knative.dev/serving/test/performance/benchmarks/func-invocation-ego
-          # args: ["-target=appender-ego", "--duration=3m"] # TODO: think about duration setting later
-          args: ["-target=appender-ego", "--duration=3m"] # TODO: think about duration setting later
+          args: ["-target=appender-ego", "--duration=5m"]
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:
@@ -75,6 +74,23 @@ spec:
                 secretKeyRef:
                   name: performance-test-config
                   key: buildid
+            - name: LEADER_PK # leader public key
+              valueFrom:
+                secretKeyRef:
+                  name: static-pre-keys
+                  key: leader_pk
+            - name: LEADER_PP # leader public params
+              valueFrom:
+                secretKeyRef:
+                  name: static-pre-keys 
+                  key: leader_pp
+            - name: FUNCTION_MODE # leader public params
+              valueFrom:
+                secretKeyRef:
+                  name: static-pre-keys 
+                  key: function_mode 
+            - name: RATE
+              value: "${RATE}"
           resources:
             requests:
               cpu: 1000m

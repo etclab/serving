@@ -22,8 +22,8 @@ spec:
     metadata:
       annotations:
         # limit at a single pod
-        autoscaling.knative.dev/minScale: "2"
-        autoscaling.knative.dev/maxScale: "2"
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
         # Always hook the activator in.
         autoscaling.knative.dev/targetBurstCapacity: "-1"
     spec:

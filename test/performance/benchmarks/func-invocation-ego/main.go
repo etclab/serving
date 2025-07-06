@@ -23,10 +23,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 	"knative.dev/pkg/injection"
+	"knative.dev/serving/pkg/mutil"
+	"knative.dev/serving/pkg/samba"
 	"knative.dev/serving/test/performance/performance"
 
 	"knative.dev/pkg/signals"
@@ -35,13 +38,42 @@ import (
 
 const (
 	benchmarkName = "function invocation appender ego"
+	targetName    = "appender-ego-leader"
 )
 
 var (
-	target     = flag.String("target", "", "The target to attack.")                    // this will be function name
-	duration   = flag.Duration("duration", 5*time.Minute, "The duration of the probe") // TODO: think about duration setting later
+	target     = flag.String("target", "", "The target to attack.") // this will be function name
+	duration   = flag.Duration("duration", 5*time.Minute, "The duration of the probe")
 	minDefault = 100 * time.Millisecond
 )
+
+func getDefaultMessage() []byte {
+	functionMode := mutil.FunctionMode(os.Getenv("FUNCTION_MODE"))
+	log.Printf("Function mode: %s", functionMode)
+
+	if functionMode == "SINGLE" {
+		pps := os.Getenv("LEADER_PP")
+		pks := os.Getenv("LEADER_PK")
+
+		pp, err := samba.ParsePublicParams([]byte(pps))
+		if err != nil {
+			log.Fatalf("failed to parse public params: %v", err.Error())
+		}
+		pk, err := samba.ParsePublicKey([]byte(pks))
+		if err != nil {
+			log.Fatalf("failed to parse public key: %v", err.Error())
+		}
+		msgBytes := []byte(`{"id":0,"message":"Hi"}`)
+
+		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName)
+		if err != nil {
+			log.Fatalf("failed to get default message: %v", err.Error())
+		}
+		return encryptedBytes
+	}
+
+	return []byte(`{"id":0,"message":"Hi"}`)
+}
 
 // Map the above to our benchmark targets.
 var targets = map[string]struct {
@@ -55,7 +87,7 @@ var targets = map[string]struct {
 		target: vegeta.Target{
 			Method: http.MethodPost,
 			URL:    "http://appender-ego.default.svc.cluster.local",
-			Body:   []byte(`{"id":0,"message":"Hi"}`),
+			Body:   getDefaultMessage(),
 			Header: http.Header{
 				"Content-Type":   []string{"application/json"},
 				"Ce-Id":          []string{"1"},
@@ -101,8 +133,17 @@ func main() {
 	}
 
 	// Send 1000 QPS (1 per ms) for the given duration with a 30s request timeout.
-	// rate := vegeta.Rate{Freq: 1, Per: time.Millisecond}
-	rate := vegeta.Rate{Freq: 100, Per: time.Second}
+	freq, err := strconv.Atoi(os.Getenv("RATE"))
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+	if freq <= 0 {
+		freq = 1000
+	}
+	log.Printf("Using rate: %d\n", freq)
+	rate := vegeta.Rate{Freq: freq, Per: time.Second}
+	// rate := vegeta.Rate{Freq: 1, Per: time.Second}
+
 	targeter := vegeta.NewStaticTargeter(t.target)
 	// NOTE: enable client to print the response body for debugging
 	// client := &http.Client{
