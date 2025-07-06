@@ -14,12 +14,13 @@ mkdir -p "$ARTIFACTS"
 function run_job() {
   local name=$1
   local file=$2
+  local rate=$3
 
   # cleanup from old runs
   kubectl delete job "$name" -n "$ns" --ignore-not-found=true
 
   # start the load test and get the logs
-  envsubst < "$file" | ko apply --sbom=none -Bf -
+  RATE=$rate envsubst < "$file" | ko apply --sbom=none -Bf -
 
   # sleep a bit to make sure the job is created
   sleep 5
@@ -29,11 +30,23 @@ function run_job() {
   kubectl logs -n "$ns" -f "job.batch/$name"
 
   # Dump logs to a file to upload it as CI job artifact
-  kubectl logs -n "$ns" "job.batch/$name" >"$ARTIFACTS/$name.log"
+  kubectl logs -n "$ns" "job.batch/$name" >"$ARTIFACTS/$rate.log"
 
   # clean up
   kubectl delete "job/$name" -n "$ns" --ignore-not-found=true
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-run_job func-invocation-appender "${SCRIPT_DIR}/func-invocation-appender.yaml"
+rates=(250 500 750 1000 1250 1500)
+for rate in "${rates[@]}"; do
+  echo "Running func-invocation-appender.yaml with rate: $rate"
+
+  # cleanup
+  "${SCRIPT_DIR}/teardown.sh"
+
+  # setup
+  "${SCRIPT_DIR}/setup.sh"
+
+  # run
+  run_job func-invocation-appender "${SCRIPT_DIR}/func-invocation-appender.yaml" $rate
+done

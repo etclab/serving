@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
@@ -38,8 +39,8 @@ const (
 )
 
 var (
-	target     = flag.String("target", "", "The target to attack.")                    // this will be function name
-	duration   = flag.Duration("duration", 5*time.Minute, "The duration of the probe") // TODO: think about duration setting later
+	target     = flag.String("target", "", "The target to attack.") // this will be function name
+	duration   = flag.Duration("duration", 5*time.Minute, "The duration of the probe")
 	minDefault = 100 * time.Millisecond
 )
 
@@ -101,7 +102,16 @@ func main() {
 	}
 
 	// Send 1000 QPS (1 per ms) for the given duration with a 30s request timeout.
-	rate := vegeta.Rate{Freq: 1, Per: time.Millisecond}
+	freq, err := strconv.Atoi(os.Getenv("RATE"))
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+	if freq <= 0 {
+		freq = 1000
+	}
+	log.Printf("Using rate: %d\n", freq)
+	rate := vegeta.Rate{Freq: freq, Per: time.Second}
+
 	targeter := vegeta.NewStaticTargeter(t.target)
 	// NOTE: enable client to print the response body for debugging
 	// client := &http.Client{

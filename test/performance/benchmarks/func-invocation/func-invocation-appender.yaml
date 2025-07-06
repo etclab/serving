@@ -47,7 +47,7 @@ spec:
       containers:
         - name: func-invocation
           image: ko://knative.dev/serving/test/performance/benchmarks/func-invocation
-          args: ["-target=appender", "--duration=3m"] # TODO: think about duration setting later
+          args: ["-target=appender", "--duration=5m"]
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:
@@ -74,6 +74,8 @@ spec:
                 secretKeyRef:
                   name: performance-test-config
                   key: buildid
+            - name: RATE
+              value: "${RATE}"
           resources:
             requests:
               cpu: 1000m
