@@ -1,0 +1,15 @@
+2025/07/05 14:50:59 Function mode: 
+{"level":"info","ts":1751727059.1480904,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/07/05 14:50:59 Starting func invocation probe for target: appender-ego
+2025/07/05 14:50:59 Using rate: 1000
+2025/07/05 14:56:29 Shutting down InfluxReporter
+Requests      [total, rate, throughput]         300000, 1000.00, 909.08
+Duration      [total, attack, wait]             5m30s, 5m0s, 30s
+Latencies     [min, mean, 50, 90, 95, 99, max]  972.239µs, 8.852ms, 6.761ms, 14.108ms, 20.259ms, 33.417ms, 30.001s
+Bytes In      [total, mean]                     11399848, 38.00
+Bytes Out     [total, mean]                     6899908, 23.00
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      0:4  200:299996  
+Error Set:
+Post "http://appender-ego.default.svc.cluster.local": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2025/07/05 14:56:29 SLA 1 failed. P95 latency is not in 100000000-110000000ms time range: 20.258922ms

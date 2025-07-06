@@ -1,0 +1,14 @@
+2025/07/05 15:29:14 Function mode: SINGLE
+{"level":"info","ts":1751729354.1259353,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/07/05 15:29:14 Starting func invocation probe for target: appender-ego
+2025/07/05 15:29:14 Using rate: 500
+Requests      [total, rate, throughput]         150000, 500.00, 499.97
+Duration      [total, attack, wait]             5m0s, 5m0s, 20.702ms
+Latencies     [min, mean, 50, 90, 95, 99, max]  12.278ms, 20.861ms, 19.858ms, 27.352ms, 29.764ms, 34.22ms, 324.253ms
+Bytes In      [total, mean]                     163050000, 1087.00
+Bytes Out     [total, mean]                     165000000, 1100.00
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      200:150000  
+Error Set:
+2025/07/05 15:34:14 Shutting down InfluxReporter
+2025/07/05 15:34:14 SLA 1 failed. P95 latency is not in 100000000-110000000ms time range: 29.764462ms
