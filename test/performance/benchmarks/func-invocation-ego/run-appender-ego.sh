@@ -45,7 +45,7 @@ for rate in "${rates[@]}"; do
   "${SCRIPT_DIR}/teardown.sh"
 
   # setup
-  "${SCRIPT_DIR}/pre-secret.sh"
+  "${SCRIPT_DIR}/pre-config.sh"
   "${SCRIPT_DIR}/setup.sh"
 
   # run

@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"flag"
 	"fmt"
 	"log"
@@ -48,8 +49,30 @@ var (
 )
 
 func getDefaultMessage() []byte {
+	msgBytes := []byte(`{"id":0,"message":"Hi"}`)
+
 	functionMode := mutil.FunctionMode(os.Getenv("FUNCTION_MODE"))
 	log.Printf("Function mode: %s", functionMode)
+
+	// if RSA_SK is set, we use it for encryption
+	var err error
+	var rsa_sk *rsa.PrivateKey
+	rsa_sk_str := os.Getenv("RSA_SK")
+	if rsa_sk_str != "" {
+		rsa_sk, err = mutil.UnmarshalRSAPrivateKeyFromPEM([]byte(rsa_sk_str))
+		if err != nil {
+			log.Fatalf("failed to parse RSA private key: %v", err.Error())
+		}
+		log.Printf("RSA_SK is set, using it for encryption")
+
+		encMsgBytes, err := mutil.RSAEncrypt(&rsa_sk.PublicKey, msgBytes)
+		if err != nil {
+			log.Fatalf("failed to encrypt message using RSA private key: %v", err.Error())
+		}
+		return encMsgBytes
+	} else {
+		log.Printf("RSA_SK is not set, not encrypting using RSA private key")
+	}
 
 	if functionMode == "SINGLE" {
 		pps := os.Getenv("LEADER_PP")
@@ -63,7 +86,6 @@ func getDefaultMessage() []byte {
 		if err != nil {
 			log.Fatalf("failed to parse public key: %v", err.Error())
 		}
-		msgBytes := []byte(`{"id":0,"message":"Hi"}`)
 
 		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName)
 		if err != nil {
@@ -72,7 +94,7 @@ func getDefaultMessage() []byte {
 		return encryptedBytes
 	}
 
-	return []byte(`{"id":0,"message":"Hi"}`)
+	return msgBytes
 }
 
 // Map the above to our benchmark targets.

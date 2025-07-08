@@ -1,0 +1,16 @@
+2025/07/06 21:29:07 Function mode: SINGLE
+2025/07/06 21:29:07 RSA_SK is set, using it for encryption
+{"level":"info","ts":1751837347.1502278,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/07/06 21:29:07 Starting func invocation probe for target: appender-ego
+2025/07/06 21:29:07 Using rate: 1500
+2025/07/06 21:34:37 Shutting down InfluxReporter
+Requests      [total, rate, throughput]         450000, 1500.00, 1363.61
+Duration      [total, attack, wait]             5m30s, 5m0s, 30s
+Latencies     [min, mean, 50, 90, 95, 99, max]  6.231ms, 53.294ms, 45.182ms, 99.402ms, 118.747ms, 163.06ms, 30.001s
+Bytes In      [total, mean]                     172796544, 383.99
+Bytes Out     [total, mean]                     172796544, 383.99
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      0:9  200:449991  
+Error Set:
+Post "http://appender-ego.default.svc.cluster.local": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2025/07/06 21:34:37 SLA 1 failed. P95 latency is not in 100000000-110000000ms time range: 118.746776ms

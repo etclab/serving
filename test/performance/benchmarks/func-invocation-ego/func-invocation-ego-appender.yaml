@@ -77,20 +77,25 @@ spec:
             - name: LEADER_PK # leader public key
               valueFrom:
                 secretKeyRef:
-                  name: static-pre-keys
+                  name: pre-config
                   key: leader_pk
             - name: LEADER_PP # leader public params
               valueFrom:
                 secretKeyRef:
-                  name: static-pre-keys 
+                  name: pre-config 
                   key: leader_pp
             - name: FUNCTION_MODE # leader public params
               valueFrom:
                 secretKeyRef:
-                  name: static-pre-keys 
+                  name: pre-config 
                   key: function_mode 
             - name: RATE
               value: "${RATE}"
+            - name: RSA_SK # RSA private key
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config 
+                  key: rsa_sk 
           resources:
             requests:
               cpu: 1000m

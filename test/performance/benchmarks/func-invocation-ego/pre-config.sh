@@ -23,10 +23,56 @@ MEMBER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIs
 FUNCTION_MODE='SINGLE'
 # FUNCTION_MODE=''
 
+# RSA key for tests
+# we inject with env vars to the queue-proxy container and clients for now 
+# ideally there's a trusted key registry that makes an attested TLS with each
+# function,client and provisions an RSA key pair they can use for encrypting
+# RSA_SK='-----BEGIN PRIVATE KEY-----
+# MIIG/gIBADANBgkqhkiG9w0BAQEFAASCBugwggbkAgEAAoIBgQDcfDYttBWErs5y
+# zlpU7xuo3+h2eVJoHF/8uuUKVnKliFJTRpOdUn3EbMWvDU+m/BDVRP5wqQ7iRMCu
+# 6hup8jbBbUsupNrvMTN7PGAnxek9FX3Drszj/Z/d9GZiFG5TghRieVohhIg95Vwj
+# dlKCDc5BG+UTUx4hn4hxExjfn0FVP1JqpyxhE+N7InlOus3xYaZQ9SUZYPwPxEbu
+# XALgipFDDv+oKSXSu0WS226T3Nf18kta6Qac1v9zT5o3wHiE//FAMMKC0lKXEfGN
+# HTqWr+om7aTBST/YAZrL6RSunyOCS3QKqDxC6j+399CqrVSPFcd6VvgqbFEQfwNQ
+# Zn5fauJEVY0wl71QKmV92G2MSOZDpG5vRyob4xPZiQ+fSUcD2oaYhwQt1VDDsU0c
+# E23q6y4w1gPo8N0T6NB27NUGzfYHjwjA/0t/Z9mg1OsEMnGbRowm4ImuaFIU/Krl
+# K4aZYN74DsO6y+yu4sCxOKQi7KkqAGr10ZVw4gccYHWhW5e4cVsCAwEAAQKCAYAa
+# evSK0qkO8WusECp7Luh0hMfHitSh2l6Q3OVrM2y7gr7Yb46FA4ZFVAb9+ixJ0tY2
+# tv2UDEnUVQuLNmSyKXv4CSdRZ80/kvoq39pwjG1xv6YGHXVQIILVxmeRegCyGNpX
+# 5Vk001UFkglZ3PkV05Ck8zO0+XOR+DYL1o5TNS5EjcFZO9CxrBDTFhXZpcfcKK0v
+# 5fFZtfMv9ZPLRtO1og7GLgP4b1CymXlGpQIH0itBx6LTPU9lANFXSQUtkvkmiBJ5
+# W7NMEQrG00AE9I4Mr+wgoSCed0ZbSPJg+0WFbGrCtRNpkg2uxR0n+j3bcALmQoYv
+# HhUe35VFi26TLKzOFtqlZx7WCFXGKwOIXtNxWjv3QHh2XcfTjkWABfQnAKkEi37S
+# SI5gfC5onsAYEvE3FzAZUpoCrvan0r+iJcBpR44jzF5YJj4aDwlOFmCtQNTFsfQg
+# +Rfy8Rnam+3TnxOGcwh+pD+z2q64mDCGSAt9k3dPkTAjA/ofAZNTy237lyZiw4EC
+# gcEA8/S2MzHCN5kYWK+m8Qfei1QcBW07wYVG56P0mWIMa1e4bf4FvQhaQML+CcYL
+# CwT0EyMHzt4b7wpY3Y9EU32qk3FT/VmAfFVOh8DKDHN19jVLDo5pn+NZouRIK359
+# JXiBz9h5mSMmgBRXycVZbWV27zFLZrUqLlTQvSO6EMyOsVpMeTwvrHcoro+0KZ4v
+# oYHADvKW1hDNuECjajgViJ94FaF+htZUO+jol81zWfVprpVSRx4X4ejXaLrMOLNB
+# twdBAoHBAOde3EeuIbqjIqNqUvsItsxxdLZEyHPJ2CvFKGL5XkgaE0bh+/PBsxUR
+# LmxIfedqBqQMJ1uhU8O62YY3mO2Xp4BwCc6bXIW/gNDfaPMUEgfh9XVmOyfa4BhI
+# mV3YH3dkzcrQ7kRXpyob2HIMNWds1BbJM8y3DZT4KM64AwWeSbpdYus2AmmfG6ez
+# vXO4ZD1EEjf1dtxXOyBon1GuOY/HIMW3UTvRWDRN4iqjXiLuDBemTPFOuaoLKVjx
+# vmLtzxjNmwKBwE/WnmpStoULjXQ4yCHJuYNPm3wLK6tButrERaCM/hODOdCFectL
+# mH3pUspQDf0lOdupczy4Y9vvPvYDlRDd550pUZtwVyRZpsG2zmkUwF47Qr0YzmiN
+# NyCgJR5W3w4MSi+DYQhFAKyZ+8EE3Sd4NVxCfbK3R36yMz4zGwm0aF6SdsSWdeOz
+# e5TlYsjcBCqPFBPQQJz+EtViEhkJEcMMrXgmygnGyvpwVu6XRlECh/ui0rKDnr1I
+# Pnb/6yYDRFZqAQKBwQDAQ7fRaQZmTcIvAd/K88bTxUQzYp0gew7D8KZK+OY8DE8Q
+# jCIOwVvLmed13BekAhtany7lmf49nDu+qNzQM0HiHThJFBmimyy0ZbKUrIz/N+n9
+# kOJ/kAbApzOrJDmhwYaxj0UwTZaAC3ul6jdGpszn0nLVHxiOPlnKzmbUeGDUGV5m
+# Dw+aLbmRdm9shkHmF3b8QWJwX5ympcoe2iTDMbouEtPSXXhqnn3e6LsFU8OAs5Uk
+# wULP506Itvp6wxthhRkCgcEAgLYiNR0FrQm/cMQ9tsP7/qFRTz+GFTSDzzzU8caa
+# UyfDk6E46O6AUr/VPSA/aMfB0CnUmLJ18ZuAHHk61wdE1ZFdpFPLZWQfMtyLfTd+
+# hQoClL3CTZRwymSSneyMmeyWxQ9MPIYKZ53Bj2VZreH+a+mbUCh2oNWfg06Vvu/0
+# kENAu0XK5OgzgmfzJKkIsJqfNK1SW0kSvYJ33qd96Q355QnGi0KkQyDZhn5vasiK
+# 71FNC/BakPDBF2fXOQA7Ywvs
+# -----END PRIVATE KEY-----'
 
-# static-pre-keys secret is used to provide static keys for function invocation
-kubectl delete secret static-pre-keys -n $ns --ignore-not-found=true
-kubectl create secret generic static-pre-keys -n $ns \
+ATTACH_SIGNATURE=''
+
+# pre-config secret is used to provide static keys for function invocation
+kubectl delete secret pre-config -n $ns --ignore-not-found=true
+kubectl create secret generic pre-config -n $ns \
   --from-literal=leader_kp="${LEADER_KP}" \
   --from-literal=leader_pk="${LEADER_PK}" \
   --from-literal=leader_pp="${LEADER_PP}" \
@@ -36,4 +82,6 @@ kubectl create secret generic static-pre-keys -n $ns \
   --from-literal=client_kp="${CLIENT_KP}" \
   --from-literal=client_pk="${CLIENT_PK}" \
   --from-literal=client_pp="${CLIENT_PP}" \
-  --from-literal=function_mode="${FUNCTION_MODE}" 
+  --from-literal=function_mode="${FUNCTION_MODE}" \
+  --from-literal=attach_signature="${ATTACH_SIGNATURE}" \
+  --from-literal=rsa_sk="${RSA_SK}"

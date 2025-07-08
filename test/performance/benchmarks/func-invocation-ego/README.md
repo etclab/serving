@@ -16,6 +16,9 @@
 - How to create required for running tests?
     - (inside `test/performance/benchmarks/func-invocation-ego/`)
     - Run: `go test -v .`
+    
+- Generating RSA keys?
+    - Use the `etclab/cryptofun` repo's `rsa_test.go`
 
 - How to parse the data?
     - Run: `python3 parse.py run/single-fun-enclave-samba/ samba.data "single-function-samba"`

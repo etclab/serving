@@ -23,7 +23,7 @@ import (
 // MEMBER_KP=”
 // MEMBER_PK=”
 // MEMBER_PP=”
-func TestCreateKeys(t *testing.T) {
+func TestCreatePreKeys(t *testing.T) {
 	// client is separate and will create its own public params
 	clientPp := pre.NewPublicParams()
 	clientKp := pre.KeyGen(clientPp)
