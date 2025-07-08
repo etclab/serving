@@ -221,6 +221,14 @@
     {
         "name": "FUNCTION_MODE",
         "fromHost": true
+    },
+    {
+        "name": "ATTACH_SIGNATURE",
+        "fromHost": true
+    },
+    {
+        "name": "RSA_SK",
+        "fromHost": true
     }
  ],
  "files": null

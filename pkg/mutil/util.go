@@ -4,7 +4,13 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -172,4 +178,56 @@ func PreEncrypt(pp *pre.PublicParams, pk *pre.PublicKey, plainBytes []byte,
 	}
 
 	return encryptedBytes, nil
+}
+
+// these methods are copied from cryptofun repo
+// TODO: make cryptofun public and import them from there
+func UnmarshalRSAPrivateKeyFromPEM(pemData []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemData))
+	if block == nil {
+		return nil, errors.New("error: failed fo parse PEM block containing private key")
+	}
+
+	priv, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	sk, ok := priv.(*rsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("error: file does not contain an RSA private key")
+	}
+
+	return sk, nil
+}
+
+func MarshalRSAPrivateKeyToPEM(sk *rsa.PrivateKey) ([]byte, error) {
+	derData, err := x509.MarshalPKCS8PrivateKey(sk)
+	if err != nil {
+		return nil, err
+	}
+
+	block := &pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: derData,
+	}
+
+	pemData := pem.EncodeToMemory(block)
+	if pemData == nil {
+		return nil, err
+	}
+
+	return pemData, nil
+}
+
+func RSAEncrypt(pk *rsa.PublicKey, msg []byte) ([]byte, error) {
+	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pk, msg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to RSA encrypt: %v", err)
+	}
+	return ciphertext, nil
+}
+
+func RSADecrypt(sk *rsa.PrivateKey, ciphertext []byte) ([]byte, error) {
+	return rsa.DecryptOAEP(sha256.New(), rand.Reader, sk, ciphertext, nil)
 }

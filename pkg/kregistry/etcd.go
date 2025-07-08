@@ -3,9 +3,11 @@ package kregistry
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -94,6 +96,57 @@ type KeyRegistry struct {
 	functionChains []string
 	// key is function chain id, value is the series of services in the chain
 	functionChainServices map[string]string
+
+	// -- mostly relevant for testing --
+	// RSA private key received from environment variable RSA_SK (for now)
+	// will be received from a trusted key registry via attested tls
+	RSASecretKey *rsa.PrivateKey
+
+	ClientPp *pre.PublicParams
+	ClientPk *pre.PublicKey
+}
+
+// load the client_pp,client_pk early instead of parsing it from env vars
+// on every request/response
+func (kr *KeyRegistry) LoadMyEnvVars() {
+	logDev := mutil.LogWithPrefix("dev - LoadMyEnvVars")
+
+	var err error
+	var rsaSecretKey *rsa.PrivateKey
+	// try reading with RSA private key if RSA_SK is set
+	rsaSkStr := os.Getenv("RSA_SK")
+
+	if rsaSkStr != "" {
+		rsaSecretKey, err = mutil.UnmarshalRSAPrivateKeyFromPEM([]byte(rsaSkStr))
+		if err != nil {
+			log.Fatalf("failed to parse RSA private key: %v", err.Error())
+		}
+		logDev("RSA_SK is set, using it for decryption")
+
+		kr.RSASecretKey = rsaSecretKey
+	} else {
+		logDev("RSA_SK is not set")
+	}
+
+	// load the client_pp,client_pk as well if in env vars
+	pps := os.Getenv("CLIENT_PP")
+	pks := os.Getenv("CLIENT_PK")
+
+	pp, err := samba.ParsePublicParams([]byte(pps))
+	if err != nil {
+		logDev("failed to parse public params: %v", err.Error())
+	} else {
+		logDev("Parsed CLIENT_PP successfully.")
+	}
+	pk, err := samba.ParsePublicKey([]byte(pks))
+	if err != nil {
+		logDev("failed to parse public key: %v", err.Error())
+	} else {
+		logDev("Parsed CLIENT_PK successfully.")
+	}
+
+	kr.ClientPp = pp
+	kr.ClientPk = pk
 }
 
 func (kr *KeyRegistry) SafeWriteEveryLeaderPublicParams(leaderServiceName string, publicParams *pre.PublicParams) *pre.PublicParams {
@@ -875,25 +928,27 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		}
 
 		if functionMode == mutil.FunctionModeSingle {
-			logDev("Function mode is SINGLE, use CLIENT_PP & CLIENT_PK to encrypt message.")
+			logDev("Function mode is SINGLE")
 
-			pps := os.Getenv("CLIENT_PP")
-			pks := os.Getenv("CLIENT_PK")
-			targetName := "client"
+			// prefer to use RSA secret key if available
+			if kr.RSASecretKey != nil {
+				logDev("Using RSA private key to encrypt message.")
+				encryptedBytes, err = mutil.RSAEncrypt(&kr.RSASecretKey.PublicKey, plainBytes)
+				if err != nil {
+					log.Fatalf("failed to encrypt message using RSA private key: %v", err.Error())
+				}
+			} else {
+				logDev("Using CLIENT_PP & CLIENT_PK to encrypt message.")
+				targetName := "client"
 
-			pp, err := samba.ParsePublicParams([]byte(pps))
-			if err != nil {
-				return fmt.Errorf("failed to parse public params: %v", err.Error())
-			}
-			pk, err := samba.ParsePublicKey([]byte(pks))
-			if err != nil {
-				return fmt.Errorf("failed to parse public key: %v", err.Error())
-			}
-			msgBytes := []byte(`{"id":0,"message":"Hi"}`)
+				if kr.ClientPk == nil || kr.ClientPp == nil {
+					return fmt.Errorf("client public key or public parameters are not set")
+				}
 
-			encryptedBytes, err = mutil.PreEncrypt(pp, pk, msgBytes, targetName)
-			if err != nil {
-				return fmt.Errorf("failed to get default message: %v", err.Error())
+				encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName)
+				if err != nil {
+					return fmt.Errorf("failed to get default message: %v", err.Error())
+				}
 			}
 		}
 

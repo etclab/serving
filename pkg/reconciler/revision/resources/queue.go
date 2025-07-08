@@ -497,7 +497,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "static-pre-keys",
+							Name: "pre-config",
 						},
 						Key:      "leader_kp",
 						Optional: ptr.Bool(true),
@@ -508,7 +508,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "static-pre-keys",
+							Name: "pre-config",
 						},
 						Key:      "leader_pp",
 						Optional: ptr.Bool(true),
@@ -519,7 +519,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "static-pre-keys",
+							Name: "pre-config",
 						},
 						Key:      "member_kp",
 						Optional: ptr.Bool(true),
@@ -530,7 +530,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "static-pre-keys",
+							Name: "pre-config",
 						},
 						Key:      "client_pk",
 						Optional: ptr.Bool(true),
@@ -541,7 +541,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "static-pre-keys",
+							Name: "pre-config",
 						},
 						Key:      "client_pp",
 						Optional: ptr.Bool(true),
@@ -552,9 +552,31 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "static-pre-keys",
+							Name: "pre-config",
 						},
 						Key:      "function_mode",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "ATTACH_SIGNATURE",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "attach_signature",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "RSA_SK",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "rsa_sk",
 						Optional: ptr.Bool(true),
 					},
 				},

@@ -391,6 +391,8 @@ func Main(opts ...Option) error {
 
 	d.KeyRegistry = new(kregistry.KeyRegistry)
 	d.KeyRegistry.IsEtcdReady = make(chan struct{})
+	d.KeyRegistry.LoadMyEnvVars()
+
 	// connect to etcd
 	go initEtcdWithRetry(&d)
 
@@ -595,6 +597,17 @@ type DebugTransport struct {
 	KeyRegistry *kregistry.KeyRegistry
 }
 
+func (d *DebugTransport) decryptRSAMessage(encryptedBytes []byte) ([]byte, error) {
+	logDev := mutil.LogWithPrefix("dev - decryptRSAMessage")
+
+	plaintext, err := mutil.RSADecrypt(d.KeyRegistry.RSASecretKey, encryptedBytes)
+	if err != nil {
+		logDev("failed to decrypt message using RSA private key: %v", err.Error())
+		return nil, err
+	}
+	return plaintext, nil
+}
+
 func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, error) {
 	logDev := mutil.LogWithPrefix("dev - decryptSambaMessage")
 
@@ -669,27 +682,39 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var plaintext []byte
 
 	functionMode := mutil.GetFunctionMode()
-	if functionMode == mutil.FunctionModeEmpty {
+
+	switch functionMode {
+	case mutil.FunctionModeEmpty:
 		logDev("Function mode is undefined, using FakeDecrypt method.")
 		plaintext, err = mutil.FakeDecrypt(encBody)
 		if err != nil {
 			logDev("Error decrypting request body: %v", err)
 			return nil, err
 		}
-	}
 
-	if functionMode == mutil.FunctionModeSingle {
+	case mutil.FunctionModeSingle:
 		logDev("Function mode is SINGLE, use my secret key to decrypt message.")
 
-		// decrypt the ciphertext, get the plaintext
-		plaintext, err = d.decryptSambaMessage(encBody)
-		if err != nil {
-			logDev("Error decrypting message: %v", err)
-			return nil, err
+		// check if RSA private key is set
+		// if yes use it to decrypt instead of samba
+		if d.KeyRegistry.RSASecretKey != nil {
+			logDev("Decrypting message using RSA private key.")
+			plaintext, err = d.decryptRSAMessage(encBody)
+			if err != nil {
+				logDev("failed to decrypt message using RSA private key: %v", err.Error())
+				return nil, err
+			}
+		} else {
+			// decrypt the ciphertext using proxy re-encryption
+			logDev("Decrypting message using samba re-encryption.")
+			plaintext, err = d.decryptSambaMessage(encBody)
+			if err != nil {
+				logDev("Error decrypting message: %v", err)
+				return nil, err
+			}
 		}
-	}
 
-	if functionMode == mutil.FunctionModeChain {
+	case mutil.FunctionModeChain:
 		logDev("Function mode is CHAIN, getting the function chain from KeyRegistry.")
 		chainedServices := d.KeyRegistry.GetDefaultFunctionChain()
 		currentService := d.KeyRegistry.ServiceName
