@@ -216,7 +216,9 @@ func TryAcquireLease(d *Defaults) {
 
 	// this is pod name
 	myId := d.Env.ServingPod
-	leaseLockName := d.Env.ServingRevision // lease lock name is the function revision name
+	// lease lock name is the function revision name
+	// leaseLockName := d.Env.ServingRevision
+	leaseLockName := d.KeyRegistry.GetFunctionId(d.Env.ServingRevision)
 	leaseLockNamespace := d.Env.ServingNamespace
 	logDev("ServingRevision: %s, ServingNamespace: %s, ServingPod: %s", leaseLockName, leaseLockNamespace, myId)
 
@@ -257,6 +259,7 @@ func TryAcquireLease(d *Defaults) {
 				memberPublicKeyDir := "members/" + myId + "/publicKey"
 				go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
 
+				var err error
 				var pp *pre.PublicParams
 				var keyPair *pre.KeyPair
 
@@ -265,13 +268,15 @@ func TryAcquireLease(d *Defaults) {
 				leaderPublicParamsSerialized := d.Env.LeaderPp
 				leaderKeyPairSerialized := d.Env.LeaderKp
 
-				pp, err := samba.ParsePublicParams([]byte(leaderPublicParamsSerialized))
-				if err != nil {
-					logDev("Error parsing leader public params from env var: %v", err)
-				}
-				keyPair, err = samba.ParseKeyPair([]byte(leaderKeyPairSerialized))
-				if err != nil {
-					logDev("Error parsing leader key pair from env var: %v", err)
+				if leaderPublicParamsSerialized != "" || leaderKeyPairSerialized != "" {
+					pp, err = samba.ParsePublicParams([]byte(leaderPublicParamsSerialized))
+					if err != nil {
+						logDev("Error parsing leader public params from env var: %v", err)
+					}
+					keyPair, err = samba.ParseKeyPair([]byte(leaderKeyPairSerialized))
+					if err != nil {
+						logDev("Error parsing leader key pair from env var: %v", err)
+					}
 				}
 
 				if pp == nil || keyPair == nil {
@@ -391,7 +396,7 @@ func Main(opts ...Option) error {
 
 	d.KeyRegistry = new(kregistry.KeyRegistry)
 	d.KeyRegistry.IsEtcdReady = make(chan struct{})
-	d.KeyRegistry.LoadMyEnvVars()
+	d.KeyRegistry.LoadMyEnvVars(d.Env.ServingService)
 
 	// connect to etcd
 	go initEtcdWithRetry(&d)
@@ -567,8 +572,8 @@ func Main(opts ...Option) error {
 func initKeyRegistry() Option {
 	return func(d *Defaults) {
 		d.KeyRegistry.InstanceId = d.Env.ServingPodIP
-		d.KeyRegistry.FunctionId = d.Env.ServingRevision
-		d.KeyRegistry.ServiceName = d.Env.ServingService
+		d.KeyRegistry.FunctionId = d.KeyRegistry.GetFunctionId(d.Env.ServingRevision)
+		d.KeyRegistry.ServiceName = d.KeyRegistry.GetServiceName(d.Env.ServingService)
 		d.KeyRegistry.PodId = d.Env.ServingPod
 	}
 }
@@ -628,6 +633,7 @@ func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, err
 		reEncKey = nil
 		myPublicParams, myKeyPair = d.KeyRegistry.SafeReadLeaderKeys()
 	} else {
+		logDev("I'm a member, so re-encrypting message to my keys before decryption")
 		// assuming I am a member
 		myLeaderId := d.KeyRegistry.SafeReadMemLeaderId()
 		// get the re-encryption key

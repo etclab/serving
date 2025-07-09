@@ -229,6 +229,14 @@
     {
         "name": "RSA_SK",
         "fromHost": true
+    },
+    {
+        "name": "SERVICE_NAMES",
+        "fromHost": true
+    },
+    {
+        "name": "FUNCTION_IDS",
+        "fromHost": true
     }
  ],
  "files": null

@@ -580,6 +580,28 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 						Optional: ptr.Bool(true),
 					},
 				},
+			}, {
+				Name: "SERVICE_NAMES",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "service-config",
+						},
+						Key:      "service_names",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "FUNCTION_IDS",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "service-config",
+						},
+						Key:      "function_ids",
+						Optional: ptr.Bool(true),
+					},
+				},
 			},
 		},
 	}

@@ -48,8 +48,13 @@ type KeyRegistry struct {
 	InstanceId string
 	// RevisionId is the unique id for the function
 	// and identifies a deployed revision of the function
-	FunctionId  string
-	ServiceName string
+	FunctionId string
+	// sometimes we need same function id for two different revisions
+	// if function id is same the keys stored at etcd will be accessible to multiple revisions
+	// also the lease lock name will be the same and multiple revisions will share the lease
+	OverriddenFunctionId  string // for testing
+	OverriddenServiceName string // for testing
+	ServiceName           string
 	// PodId is the unique id for the pod
 	PodId        string
 	KeyPair      *pre.KeyPair
@@ -106,10 +111,66 @@ type KeyRegistry struct {
 	ClientPk *pre.PublicKey
 }
 
+func (kr *KeyRegistry) GetFunctionId(servingRevisionName string) string {
+	if kr.OverriddenFunctionId != "" {
+		return kr.OverriddenFunctionId
+	} else {
+		return servingRevisionName
+	}
+}
+
+func (kr *KeyRegistry) GetServiceName(serviceName string) string {
+	if kr.OverriddenServiceName != "" {
+		return kr.OverriddenServiceName
+	} else {
+		return serviceName
+	}
+}
+
 // load the client_pp,client_pk early instead of parsing it from env vars
 // on every request/response
-func (kr *KeyRegistry) LoadMyEnvVars() {
+func (kr *KeyRegistry) LoadMyEnvVars(serviceName string) {
 	logDev := mutil.LogWithPrefix("dev - LoadMyEnvVars")
+
+	service_names := os.Getenv("SERVICE_NAMES")
+	function_ids := os.Getenv("FUNCTION_IDS")
+
+	if service_names != "" && function_ids != "" {
+		logDev("Overriding function id and service name with %s and %s", function_ids, service_names)
+
+		// serviceA:alt_nameA,serviceB:alt_nameA
+		serviceNameMap := make(map[string]string)
+		names := strings.Split(service_names, ",")
+		for _, name := range names {
+			keyPair := strings.Split(name, ":")
+			serviceNameMap[keyPair[0]] = keyPair[1]
+		}
+
+		value, exists := serviceNameMap[serviceName]
+		if exists {
+			logDev("Overriding service name for %s to %s", serviceName, value)
+			kr.OverriddenServiceName = value
+		} else {
+			logDev("No override for service name %s", serviceName)
+		}
+
+		functionIdMap := make(map[string]string)
+		ids := strings.Split(function_ids, ",")
+		for _, id := range ids {
+			keyPair := strings.Split(id, ":")
+			functionIdMap[keyPair[0]] = keyPair[1]
+		}
+
+		value, exists = functionIdMap[serviceName]
+		if exists {
+			logDev("Overriding function id for %s to %s", serviceName, value)
+			kr.OverriddenFunctionId = value
+		} else {
+			logDev("No override for function id for service %s", serviceName)
+		}
+	} else {
+		logDev("No overrides for function id and service name")
+	}
 
 	var err error
 	var rsaSecretKey *rsa.PrivateKey
@@ -132,21 +193,25 @@ func (kr *KeyRegistry) LoadMyEnvVars() {
 	pps := os.Getenv("CLIENT_PP")
 	pks := os.Getenv("CLIENT_PK")
 
-	pp, err := samba.ParsePublicParams([]byte(pps))
-	if err != nil {
-		logDev("failed to parse public params: %v", err.Error())
-	} else {
-		logDev("Parsed CLIENT_PP successfully.")
-	}
-	pk, err := samba.ParsePublicKey([]byte(pks))
-	if err != nil {
-		logDev("failed to parse public key: %v", err.Error())
-	} else {
-		logDev("Parsed CLIENT_PK successfully.")
-	}
+	if pps != "" && pks != "" {
+		pp, err := samba.ParsePublicParams([]byte(pps))
+		if err != nil {
+			logDev("failed to parse public params: %v", err.Error())
+		} else {
+			logDev("Parsed CLIENT_PP successfully.")
+		}
+		pk, err := samba.ParsePublicKey([]byte(pks))
+		if err != nil {
+			logDev("failed to parse public key: %v", err.Error())
+		} else {
+			logDev("Parsed CLIENT_PK successfully.")
+		}
 
-	kr.ClientPp = pp
-	kr.ClientPk = pk
+		kr.ClientPp = pp
+		kr.ClientPk = pk
+	} else {
+		logDev("CLIENT_PP or CLIENT_PK is not set in environment variables.")
+	}
 }
 
 func (kr *KeyRegistry) SafeWriteEveryLeaderPublicParams(leaderServiceName string, publicParams *pre.PublicParams) *pre.PublicParams {
