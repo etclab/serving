@@ -1,0 +1,5 @@
+specVersion: 0.36.0
+name: count-vote-fun
+runtime: go
+created: 2025-07-11T14:33:41.3922983-04:00
+invoke: cloudevent

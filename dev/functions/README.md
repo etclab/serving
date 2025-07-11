@@ -46,3 +46,16 @@ DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=../private.pem --targe
     - Create a public/private RSA key pair with: 
         - for `private.pem`: `openssl genrsa -out private.pem 3072`
         - for `public.pem`: `openssl rsa -in private.pem -outform PEM -pubout -out public.pem`
+
+- How to invoke knative func using cli?
+```bash
+curl -v -X POST \
+  http://broker-ingress.knative-eventing.svc.cluster.local/default/example-broker \
+  -H "Content-Type: application/cloudevents+json" \
+  -H "ce-specversion: 1.0" \
+  -H "ce-type: dev.knative.sources.ping" \
+  -H "ce-source: /apis/v1/namespaces/default/pingsources/myping" \
+  -H "ce-id: $(uuidgen)" \
+  -H "ce-time: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  -d '{"shortcode":":dog:"}'
+```

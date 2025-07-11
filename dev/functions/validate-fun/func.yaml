@@ -1,0 +1,5 @@
+specVersion: 0.36.0
+name: validate-fun
+runtime: go
+created: 2025-07-11T12:22:07.767163354-04:00
+invoke: cloudevent

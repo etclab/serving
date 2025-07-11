@@ -1,0 +1,5 @@
+specVersion: 0.36.0
+name: display-fun
+runtime: go
+created: 2025-07-11T16:33:39.177350863-04:00
+invoke: cloudevent

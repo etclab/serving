@@ -1,7 +1,7 @@
 #!/bin/bash 
 
-# usage: # ./build-function.sh <scaffold-dir> <function-dir>
-# ./build-function.sh ./scaffold ./appender
+# usage: # ./build-function.sh <scaffold-dir> <function-dir> <docker-image-name>
+# ./build-function.sh ./scaffold ./appender appender-ego
 
 # find script dir
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +10,7 @@ PRIVATE_KEY="$KEYS_DIR/private.pem"
 
 SCAFFOLD_DIR="$1"
 FUNCTION_DIR="$2"
+DOCKER_IMG_NAME="$3"
 
 TAG=${TAG:-latest}
 
@@ -22,5 +23,5 @@ cp -r $FUNCTION_DIR/* $SCAFFOLD_DIR/f/
 # run the docker build command
 cd $SCAFFOLD_DIR
 DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=$PRIVATE_KEY \
-    --target deploy -t "atosh502/appender-ego:${TAG}" --push .
+    --target deploy -t "atosh502/${DOCKER_IMG_NAME}:${TAG}" --push .
 cd -
