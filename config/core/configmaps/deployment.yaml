@@ -35,7 +35,7 @@ data:
 
   # these services will have the og queue sidecar image injected
   # default-queue-sidecar-services: "sequence-display"
-  default-queue-sidecar-services: "sequence-display,appender"
+  default-queue-sidecar-services: "sequence-display,appender,validate-fun-stock,vote-fun-stock,count-vote-fun-stock,display-fun-stock"
   # sidecar image built from main branch without any modification required for 
   # some services which don't require ego-enabled functions or queue-proxy
   og-queue-sidecar-image: docker.io/atosh502/queue-39be6f1d08a095bd076a71d288d295b6:og
