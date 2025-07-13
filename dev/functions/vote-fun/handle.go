@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"sync"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/cloudevents/sdk-go/v2/event"
@@ -17,8 +18,32 @@ type envConfig struct {
 
 var (
 	env        envConfig
-	emojiVotes map[string]int
+	emojiVotes EmojiVotes
 )
+
+type EmojiVotes struct {
+	mu   sync.RWMutex
+	data map[string]int
+}
+
+func NewSafeMap() *EmojiVotes {
+	return &EmojiVotes{
+		data: make(map[string]int),
+	}
+}
+
+func (sm *EmojiVotes) Set(key string, value int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.data[key] = value
+}
+
+func (sm *EmojiVotes) Get(key string) (int, bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	val, ok := sm.data[key]
+	return val, ok
+}
 
 type EmojiVote struct {
 	Emoji
@@ -36,9 +61,9 @@ func init() {
 		os.Exit(1)
 	}
 	// TODO: initialize from a store/db
-	emojiVotes = make(map[string]int)
+	emojiVotes = *NewSafeMap()
 	for _, code := range top100Emoji {
-		emojiVotes[code] = 0
+		emojiVotes.Set(code, 0)
 	}
 }
 
@@ -52,12 +77,13 @@ func Handle(ctx context.Context, inputEvent event.Event) (*event.Event, error) {
 		return nil, http.NewResult(400, "got error while unmarshalling data: %w", err)
 	}
 
-	// TODO: ensure proper locking before updating the map
 	// update the vote for emoji
-	emojiVotes[data.Shortcode]++
+	// without mutex will result in concurrent map writes issues if rps is high
+	votes, _ := emojiVotes.Get(data.Shortcode)
+	emojiVotes.Set(data.Shortcode, votes+1)
 
 	emojiVote := &EmojiVote{
-		Count: emojiVotes[data.Shortcode],
+		Count: votes + 1,
 		Emoji: *data,
 	}
 	outputEvent := inputEvent.Clone()
