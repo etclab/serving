@@ -273,10 +273,11 @@ github.com/docker/docker/pkg/homedir
 ## explicit; go 1.18
 github.com/docker/docker-credential-helpers/client
 github.com/docker/docker-credential-helpers/credentials
-# github.com/edgelesssys/ego v1.7.0
+# github.com/edgelesssys/ego v1.7.1
 ## explicit; go 1.21
 github.com/edgelesssys/ego/attestation
 github.com/edgelesssys/ego/attestation/tcbstatus
+github.com/edgelesssys/ego/enclave
 github.com/edgelesssys/ego/internal/attestation
 # github.com/emicklei/go-restful/v3 v3.12.1
 ## explicit; go 1.13
@@ -302,7 +303,7 @@ github.com/felixge/httpsnoop
 # github.com/fxamacker/cbor/v2 v2.7.0
 ## explicit; go 1.17
 github.com/fxamacker/cbor/v2
-# github.com/go-jose/go-jose/v4 v4.0.4
+# github.com/go-jose/go-jose/v4 v4.0.5
 ## explicit; go 1.21
 github.com/go-jose/go-jose/v4
 github.com/go-jose/go-jose/v4/cipher
