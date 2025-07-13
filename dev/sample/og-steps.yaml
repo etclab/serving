@@ -1,0 +1,83 @@
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: first
+# spec:
+#   template:
+#     metadata:
+#       annotations:
+#         autoscaling.knative.dev/min-scale: "1" # at least 3 replicas of first
+#     spec:
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers: 
+#         - image: atosh502/appender-ego:latest
+#           env:
+#             - name: MESSAGE
+#               value: " - Handled by 0"
+#           resources:
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf
+# ---
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: second
+# spec:
+#   template:
+#     spec:
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers:
+#         - image: atosh502/appender-ego:latest
+#           env:
+#             - name: MESSAGE
+#               value: " - Handled by 1"
+#           resources:
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf
+# ---
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: third
+# spec:
+#   template:
+#     spec:
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers:
+#         - image: atosh502/appender-ego:latest
+#           env:
+#             - name: MESSAGE
+#               value: " - Handled by 2"
+#             - name: TYPE
+#               value: "samples.http.mod3"
+#           resources:
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf
+# ---

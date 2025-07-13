@@ -1,7 +1,8 @@
+# validate-fun-member replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: validate-fun
+  name: validate-fun-member
 spec:
   template:
     metadata:
@@ -24,10 +25,11 @@ spec:
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
 ---
+# vote-fun-member replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: vote-fun
+  name: vote-fun-member
 spec:
   template:
     metadata:
@@ -50,10 +52,11 @@ spec:
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
 ---
+# count-vote-fun-member replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: count-vote-fun
+  name: count-vote-fun-member
 spec:
   template:
     metadata:
@@ -76,10 +79,11 @@ spec:
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
 ---
+# display-fun-member replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: display-fun
+  name: display-fun-member
 spec:
   template:
     metadata:
@@ -104,3 +108,4 @@ spec:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
+---

@@ -1,7 +1,7 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: validate-fun
+  name: validate-fun-stock
 spec:
   template:
     metadata:
@@ -13,12 +13,7 @@ spec:
         configMap:
           name: sgx-default-qcnl-local
       containers:
-        - image: atosh502/validate-fun:latest
-          resources:
-            limits:
-              sgx.intel.com/epc: "512Ki"
-              sgx.intel.com/enclave: 1
-              sgx.intel.com/provision: 1
+        - image: atosh502/validate-fun:stock
           volumeMounts:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf
@@ -27,7 +22,7 @@ spec:
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: vote-fun
+  name: vote-fun-stock
 spec:
   template:
     metadata:
@@ -39,12 +34,7 @@ spec:
         configMap:
           name: sgx-default-qcnl-local
       containers:
-        - image: atosh502/vote-fun:latest
-          resources:
-            limits:
-              sgx.intel.com/epc: "512Ki"
-              sgx.intel.com/enclave: 1
-              sgx.intel.com/provision: 1
+        - image: atosh502/vote-fun:stock
           volumeMounts:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf
@@ -53,7 +43,7 @@ spec:
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: count-vote-fun
+  name: count-vote-fun-stock
 spec:
   template:
     metadata:
@@ -65,12 +55,7 @@ spec:
         configMap:
           name: sgx-default-qcnl-local
       containers:
-        - image: atosh502/count-vote-fun:latest
-          resources:
-            limits:
-              sgx.intel.com/epc: "512Ki"
-              sgx.intel.com/enclave: 1
-              sgx.intel.com/provision: 1
+        - image: atosh502/count-vote-fun:stock
           volumeMounts:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf
@@ -79,7 +64,7 @@ spec:
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: display-fun
+  name: display-fun-stock
 spec:
   template:
     metadata:
@@ -91,15 +76,10 @@ spec:
         configMap:
           name: sgx-default-qcnl-local
       containers:
-        - image: atosh502/display-fun:latest
+        - image: atosh502/display-fun:stock
           env:
           - name: TYPE
             value: "samples.http.mod3"
-          resources:
-            limits:
-              sgx.intel.com/epc: "512Ki"
-              sgx.intel.com/enclave: 1
-              sgx.intel.com/provision: 1
           volumeMounts:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf

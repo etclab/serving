@@ -1,7 +1,8 @@
+# validate-fun-leader replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: validate-fun
+  name: validate-fun-leader
 spec:
   template:
     metadata:
@@ -24,10 +25,11 @@ spec:
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
 ---
+# vote-fun-leader replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: vote-fun
+  name: vote-fun-leader
 spec:
   template:
     metadata:
@@ -50,10 +52,11 @@ spec:
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
 ---
+# count-vote-fun-leader replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: count-vote-fun
+  name: count-vote-fun-leader
 spec:
   template:
     metadata:
@@ -76,10 +79,11 @@ spec:
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
 ---
+# display-fun-leader replica
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: display-fun
+  name: display-fun-leader
 spec:
   template:
     metadata:

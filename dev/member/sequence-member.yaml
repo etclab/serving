@@ -10,19 +10,19 @@ spec:
     - ref:
         apiVersion: serving.knative.dev/v1
         kind: Service
-        name: validate-fun
+        name: validate-fun-member
     - ref:
         apiVersion: serving.knative.dev/v1
         kind: Service
-        name: vote-fun
+        name: vote-fun-member
     - ref:
         apiVersion: serving.knative.dev/v1
         kind: Service
-        name: count-vote-fun
+        name: count-vote-fun-member
     - ref:
         apiVersion: serving.knative.dev/v1
         kind: Service
-        name: display-fun
+        name: display-fun-member
   reply:
     ref:
       kind: Broker

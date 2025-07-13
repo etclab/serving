@@ -6,7 +6,8 @@ spec:
   template:
     metadata:
       annotations:
-        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/max-scale: "2" 
     spec:
       volumes:
       - name: sgx-default-qcnl-local-volume
@@ -32,7 +33,8 @@ spec:
   template:
     metadata:
       annotations:
-        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/max-scale: "2"
     spec:
       volumes:
       - name: sgx-default-qcnl-local-volume
@@ -58,7 +60,8 @@ spec:
   template:
     metadata:
       annotations:
-        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/max-scale: "2"
     spec:
       volumes:
       - name: sgx-default-qcnl-local-volume
@@ -84,7 +87,8 @@ spec:
   template:
     metadata:
       annotations:
-        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/max-scale: "2" 
     spec:
       volumes:
       - name: sgx-default-qcnl-local-volume
@@ -104,3 +108,4 @@ spec:
             - name: sgx-default-qcnl-local-volume
               mountPath: /etc/sgx_default_qcnl.conf
               subPath: sgx_default_qcnl.conf
+---
