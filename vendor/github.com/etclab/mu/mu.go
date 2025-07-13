@@ -9,7 +9,8 @@ import (
 )
 
 // Fatalf writes a message to stderr, and then calls [os.Exit](1).
-// Arguments are handled in the manner of [fmt.Fprintf].
+// Arguments are handled in the manner of [fmt.Fprintf].  If format does
+// not end in a newline, this function adds one.
 func Fatalf(format string, a ...any) {
 	if !strings.HasSuffix(format, "\n") {
 		format += "\n"
@@ -25,7 +26,7 @@ func Panicf(format string, a ...any) {
 	panic(msg)
 }
 
-// BUG simply invoked [Panicf], but prepends the message with "bug: "
+// BUG simply invokes [Panicf], but prepends the message with "bug: "
 func BUG(format string, a ...any) {
 	Panicf("bug: "+format, a...)
 }
@@ -51,4 +52,10 @@ func BoolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// IntToBool converts an int to a bool.  It returns true if i is nonzero,
+// and false if i is zero.
+func IntToBool(i int) bool {
+	return i != 0
 }
