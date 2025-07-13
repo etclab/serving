@@ -237,7 +237,11 @@
     {
         "name": "FUNCTION_IDS",
         "fromHost": true
-    }
+    },
+    {
+        "name": "FUNCTION_CHAIN",
+        "fromHost": true
+    } 
  ],
  "files": null
 }

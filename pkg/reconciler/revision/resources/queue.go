@@ -602,6 +602,17 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 						Optional: ptr.Bool(true),
 					},
 				},
+			}, {
+				Name: "FUNCTION_CHAIN",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "function_chain",
+						Optional: ptr.Bool(true),
+					},
+				},
 			},
 		},
 	}

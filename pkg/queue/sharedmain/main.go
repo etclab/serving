@@ -691,7 +691,11 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	switch functionMode {
 	case mutil.FunctionModeEmpty:
-		logDev("Function mode is undefined, using FakeDecrypt method.")
+		logDev("Function mode is undefined, skipping decryption logic.")
+		plaintext = encBody
+
+	case mutil.FunctionModeFake:
+		logDev("Function mode is FAKE, using FakeDecrypt method.")
 		plaintext, err = mutil.FakeDecrypt(encBody)
 		if err != nil {
 			logDev("Error decrypting request body: %v", err)
@@ -721,22 +725,25 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 	case mutil.FunctionModeChain:
-		logDev("Function mode is CHAIN, getting the function chain from KeyRegistry.")
-		chainedServices := d.KeyRegistry.GetDefaultFunctionChain()
+		logDev("Function mode is CHAIN, getting the function chain from env var.")
+		chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
 		currentService := d.KeyRegistry.ServiceName
 		currentServiceIndex := slices.Index(chainedServices, currentService)
 		prevServiceIndex := currentServiceIndex - 1
 
 		if prevServiceIndex < 0 {
-			logDev("Message to `first` service doesn't arrive as encrypted, no decryption needed.")
-		} else {
-			// decrypt the ciphertext, get the plaintext
-			plaintext, err = d.decryptSambaMessage(encBody)
-			if err != nil {
-				logDev("Error decrypting message: %v", err)
-				return nil, err
-			}
+			logDev("Message to `first` service is sent encrypted by client")
 		}
+		logDev("decrypting message for service %s in chain %v", currentService, chainedServices)
+		// decrypt the ciphertext, get the plaintext
+		plaintext, err = d.decryptSambaMessage(encBody)
+		if err != nil {
+			logDev("Error decrypting message: %v", err)
+			return nil, err
+		}
+	default:
+		logDev("Function mode is %s, not implemented", functionMode)
+		plaintext = encBody
 	}
 
 	logDev("Request Body (decrypted) (to user-container): %s", string(plaintext))

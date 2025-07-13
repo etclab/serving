@@ -945,6 +945,16 @@ func (kr *KeyRegistry) FetchStaticFunctionChains() {
 	}
 }
 
+func (kr *KeyRegistry) GetFunctionChainFromEnv() []string {
+	logDev := mutil.LogWithPrefix("dev - GetFunctionChainFromEnv")
+	functionChain := os.Getenv("FUNCTION_CHAIN")
+	logDev("FUNCTION_CHAIN from env: %s", functionChain)
+	if functionChain == "" {
+		return []string{}
+	}
+	return strings.Split(functionChain, "/")
+}
+
 func (kr *KeyRegistry) GetDefaultFunctionChain() []string {
 	if len(kr.functionChains) == 0 {
 		// if there are no function chains, return an empty slice
@@ -960,6 +970,10 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	logDev := mutil.LogWithPrefix("dev - EncryptResponseBody")
 
 	logDev("Response: %s %s %d\n", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode)
+
+	contentTypeStr := resp.Header.Get("Content-Type")
+	logDev("Response Content-Type: %s", contentTypeStr)
+
 	for name, values := range resp.Header {
 		for _, value := range values {
 			logDev("  %s: %s\n", name, value)
@@ -983,8 +997,13 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		functionMode := mutil.GetFunctionMode()
 
 		if functionMode == mutil.FunctionModeEmpty {
+			logDev("Function mode is undefined, skipping encryption.")
+			encryptedBytes = plainBytes
+		}
+
+		if functionMode == mutil.FunctionModeFake {
 			// fake-encrypt the response body using placeholder Encrypt function
-			logDev("Function mode is undefined, using FakeEncrypt method.")
+			logDev("Function mode is FAKE, using FakeEncrypt method.")
 			encryptedBytes, err = mutil.FakeEncrypt(plainBytes)
 			if err != nil {
 				logDev("Error encrypting response body: %v", err)
@@ -1018,7 +1037,7 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		}
 
 		if functionMode == mutil.FunctionModeChain {
-			chainedServices := kr.GetDefaultFunctionChain()
+			chainedServices := kr.GetFunctionChainFromEnv()
 			currentService := kr.ServiceName
 			currentServiceIndex := slices.Index(chainedServices, currentService)
 			nextServiceIndex := -1
@@ -1028,50 +1047,34 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 
 			// later if we can, encrypt the response body for next service in the chain
 			// encrypt request at first (going from first -> second), and at second (going from second -> third)
-			if nextServiceIndex < 0 || nextServiceIndex >= len(chainedServices) {
+			if nextServiceIndex < 0 || nextServiceIndex > len(chainedServices) {
 				logDev("No next service in the chain, skipping proxy encryption")
+				encryptedBytes = plainBytes
+			} else if nextServiceIndex == len(chainedServices) {
+				logDev("We are at the end of the chain, no next service to encrypt for, so encrypting for client")
+				logDev("Using CLIENT_PP & CLIENT_PK to encrypt message.")
+
+				targetName := "client"
+
+				if kr.ClientPk == nil || kr.ClientPp == nil {
+					return fmt.Errorf("client public key or public parameters are not set")
+				}
+
+				encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName)
+				if err != nil {
+					return fmt.Errorf("failed to get default message: %v", err.Error())
+				}
 			} else {
 				nextService := chainedServices[nextServiceIndex]
-				logDev("Encrypting response body for next service in the chain: %s", nextService)
+				logDev("Encrypting response body for next service %s in the chain: %s", nextService, chainedServices)
 
 				nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
 				nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
 
-				m := pre.RandomGt()
-				wrappedKey := pre.Encrypt(nextServicePubParams, m, nextServicePubKey)
-				key := pre.KdfGtToAes256(m)
-				cipherText, err := mutil.AESGCMEncrypt(key, plainBytes)
-
+				encryptedBytes, err = mutil.PreEncrypt(nextServicePubParams, nextServicePubKey, plainBytes, nextService)
 				if err != nil {
-					logDev("Error in AES-GCM encryption: %v", err)
-					return err
+					return fmt.Errorf("failed to get default message: %v", err.Error())
 				}
-
-				var wrappedKeySerialized samba.Ciphertext1Serialized
-				err = wrappedKeySerialized.Serialize(wrappedKey)
-				if err != nil {
-					logDev("Error serializing wrapped key: %v", err)
-					return err
-				}
-
-				sambaMessage := &samba.SambaMessage{
-					// not used right now
-					Target: nextService,
-					// always false because the message is always encrypted for leader's public key
-					// the member's proxy needs to re-encrypt it for the member's public key
-					IsReEncrypted: false,
-					WrappedKey1:   wrappedKeySerialized,
-					Ciphertext:    cipherText,
-				}
-
-				encryptedBytes, err = json.Marshal(sambaMessage)
-				if err != nil {
-					logDev("Error marshalling wrapped message: %v", err)
-					return err
-				}
-
-				// signal that we encrypted the response body
-				resp.Header.Set("X-Queue-Encrypted", "true")
 			}
 		}
 
@@ -1081,7 +1084,11 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 
 	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))
 	resp.ContentLength = int64(len(encryptedBytes))
-	resp.Header.Set("Content-Type", "application/json")
+	if strings.Contains(contentTypeStr, "grpc") {
+		resp.Header.Set("Content-Type", "application/grpc")
+	} else {
+		resp.Header.Set("Content-Type", "application/json")
+	}
 	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
 
 	return nil
