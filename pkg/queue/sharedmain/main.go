@@ -67,6 +67,8 @@ import (
 	"knative.dev/serving/pkg/queue"
 	"knative.dev/serving/pkg/queue/readiness"
 
+	bls "github.com/cloudflare/circl/ecc/bls12381"
+	"github.com/etclab/ncircl/aggsig/bgls03"
 	"github.com/etclab/pre"
 	injection "knative.dev/pkg/injection"
 
@@ -161,6 +163,8 @@ type Env struct {
 	ClientPp     string `split_words:"true"` // optional
 	ClientPk     string `split_words:"true"` // optional
 	FunctionMode string `split_words:"true"` // optional
+
+	AttachSignature bool `split_words:"true"` // optional
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -397,6 +401,9 @@ func Main(opts ...Option) error {
 	d.KeyRegistry = new(kregistry.KeyRegistry)
 	d.KeyRegistry.IsEtcdReady = make(chan struct{})
 	d.KeyRegistry.LoadMyEnvVars(d.Env.ServingService)
+
+	// env.ServingPod is the pod id
+	go d.KeyRegistry.SetupSignature(env.AttachSignature, env.ServingPod)
 
 	// connect to etcd
 	go initEtcdWithRetry(&d)
@@ -675,6 +682,62 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Body == nil || req.ContentLength == 0 {
 		logDev("Request body is empty, skipping decryption logic.")
 		return d.Transport.RoundTrip(req)
+	}
+
+	nonce := req.Header.Get("Ce-Nonce")
+	if nonce == "" {
+		logDev("Request missing Ce-Nonce header, cannot add signature.")
+	} else {
+		// instanceId is unique instance id (or pod id) of the function
+		messageToSign := nonce + "|" + d.KeyRegistry.PodId
+		logDev("Message to sign: %s", messageToSign)
+
+		// if existing signature then parse it and update it
+		existingAggSignature := req.Header.Get("Ce-Aggsignature")
+		// records the function instance ids that have signed this message
+		funChain := req.Header.Get("Ce-Functionchain")
+		logDev("Existing signature: %s", existingAggSignature)
+		logDev("Existing function chain: %s", funChain)
+
+		// based on TestManySign() method in ncircle/aggsig/bgls03/bgls03_test.go
+		// https://github.com/etclab/ncircl/blob/7667a1b1a68bbbfaab501187acb5001ddc3a8754/aggsig/bgls03/bgls03_test.go#L36-L58
+		var aggSig *bgls03.Signature
+		if existingAggSignature == "" {
+			// first function in the chain
+			aggSig = bgls03.NewSignature()
+			bgls03.Sign(d.KeyRegistry.SigPp, d.KeyRegistry.SigSk, []byte(messageToSign), aggSig)
+		} else {
+			// if there's an existing signature, parse it and add to it
+			eSigBytes, err := hex.DecodeString(existingAggSignature)
+			if err != nil {
+				logDev("Error decoding existing signature from hex: %v", err)
+				return nil, err
+			}
+			g1 := new(bls.G1)
+			err = g1.SetBytes(eSigBytes)
+			if err != nil {
+				logDev("Error parsing existing signature bytes: %v", err)
+				return nil, err
+			}
+
+			aggSig = &bgls03.Signature{
+				Sig: g1,
+			}
+
+			bgls03.Sign(d.KeyRegistry.SigPp, d.KeyRegistry.SigSk, []byte(messageToSign), aggSig)
+		}
+
+		sigBytes := aggSig.Sig.BytesCompressed()
+		sigHex := hex.EncodeToString(sigBytes)
+
+		// attach updated signature to the request header
+		logDev("Attaching signature to request header: %s", sigHex)
+		if funChain == "" {
+			funChain = d.KeyRegistry.PodId
+		} else {
+			funChain = funChain + "|" + d.KeyRegistry.PodId
+		}
+		d.KeyRegistry.StoreAggSignatureAndChain(nonce, funChain, sigHex)
 	}
 
 	encBody, err := io.ReadAll(req.Body)

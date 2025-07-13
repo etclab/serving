@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,10 +18,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/etclab/ncircl/aggsig/bgls03"
 	"github.com/etclab/pre"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"knative.dev/serving/pkg/bgls"
 	"knative.dev/serving/pkg/mutil"
 	"knative.dev/serving/pkg/samba"
+
+	"github.com/edgelesssys/ego/enclave"
 )
 
 //	Env:{
@@ -109,6 +114,129 @@ type KeyRegistry struct {
 
 	ClientPp *pre.PublicParams
 	ClientPk *pre.PublicKey
+
+	// relevant for bgls03 signature scheme
+	SigPp             *bgls03.PublicParams
+	SigPk             *bgls03.PublicKey
+	SigSk             *bgls03.PrivateKey
+	AttestationReport []byte
+
+	// key is nonce, value is the aggregate signature over the nonce|function-id
+	AggregateSignature map[string]string
+	// key is nonce, value is the functions that have signed the nonce
+	RunningFunctionChain map[string]string
+	muSignatureLock      sync.RWMutex
+}
+
+func (kr *KeyRegistry) StoreAggSignatureAndChain(nonce, functionChain, aggSignature string) {
+	kr.muSignatureLock.Lock()
+	defer kr.muSignatureLock.Unlock()
+
+	if kr.AggregateSignature == nil {
+		kr.AggregateSignature = make(map[string]string)
+	}
+	if kr.RunningFunctionChain == nil {
+		kr.RunningFunctionChain = make(map[string]string)
+	}
+	kr.AggregateSignature[nonce] = aggSignature
+	kr.RunningFunctionChain[nonce] = functionChain
+}
+
+func (kr *KeyRegistry) GetAggSignatureAndChain(nonce string) (string, string) {
+	kr.muSignatureLock.RLock()
+	defer kr.muSignatureLock.RUnlock()
+
+	aggSig := ""
+	chain := ""
+	if kr.AggregateSignature != nil {
+		aggSig = kr.AggregateSignature[nonce]
+	}
+	if kr.RunningFunctionChain != nil {
+		chain = kr.RunningFunctionChain[nonce]
+	}
+	return chain, aggSig
+}
+
+func (kr *KeyRegistry) SetupSignature(setupSignature bool, podId string) {
+	logDev := mutil.LogWithPrefix("dev - SetupSignature")
+	if setupSignature {
+		logDev("AttachSignature is enabled, generating bgls03 pp and key pair")
+		pp := bgls03.NewPublicParams()
+		pk, sk := bgls03.KeyGen(pp)
+
+		kr.SigPp = pp
+		kr.SigPk = pk
+		kr.SigSk = sk
+
+		// hash pp,pk and embed inside enclave report
+		pkmHash, err := bgls.HashPkm(pp, pk, podId)
+		if err != nil {
+			logDev("HashPkm failed: %v", err)
+		}
+		hash := sha256.Sum256(pkmHash)
+
+		report, err := enclave.GetRemoteReport(hash[:])
+		if err != nil {
+			logDev("failed to get attestation report from ego: %v", err)
+		}
+
+		bglsPrefix := "bgls03/" + podId
+		// send pp,pk to etcd
+		// send report to etcd
+		pkKey := bglsPrefix + "/pk"
+		err = kr.StoreBglsPublicKey(pkKey, pk)
+		if err != nil {
+			logDev("Error storing bgls public key in KeyRegistry: %v", err)
+		}
+
+		ppKey := bglsPrefix + "/pp"
+		err = kr.StoreBglsPublicParams(ppKey, pp)
+		if err != nil {
+			logDev("Error storing bgls public params in KeyRegistry: %v", err)
+		}
+
+		reportKey := bglsPrefix + "/report"
+		err = kr.StoreAttestationReport(reportKey, report)
+		if err != nil {
+			logDev("Error storing attestation report in KeyRegistry: %v", err)
+		}
+		kr.AttestationReport = report
+	} else {
+		logDev("AttachSignature is disabled, skipping bgls03 pp and key pair generation")
+	}
+}
+
+func (kr *KeyRegistry) StoreBglsPublicKey(key string, publicKey *bgls03.PublicKey) error {
+	pks := new(bgls.PublicKeySerialized)
+	pks.Serialize(publicKey)
+
+	jsonData, err := json.Marshal(pks)
+	if err != nil {
+		return fmt.Errorf("error marshaling public key message: %v", err)
+	}
+
+	return kr.StoreKV(key, string(jsonData))
+}
+
+func (kr *KeyRegistry) StoreBglsPublicParams(key string, publicParams *bgls03.PublicParams) error {
+	pks := new(bgls.PublicParamsSerialized)
+	pks.Serialize(publicParams)
+
+	jsonData, err := json.Marshal(pks)
+	if err != nil {
+		return fmt.Errorf("error marshaling public params message: %v", err)
+	}
+
+	return kr.StoreKV(key, string(jsonData))
+}
+
+func (kr *KeyRegistry) StoreAttestationReport(key string, report []byte) error {
+	jsonData, err := json.Marshal(report)
+	if err != nil {
+		return fmt.Errorf("error marshaling attestation report: %v", err)
+	}
+
+	return kr.StoreKV(key, string(jsonData))
 }
 
 func (kr *KeyRegistry) GetFunctionId(servingRevisionName string) string {
@@ -980,6 +1108,8 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		}
 	}
 
+	nonce := resp.Header.Get("Ce-Nonce")
+
 	// TODO: maybe implement streaming read/encryption?
 	plainBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1080,6 +1210,20 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 
 		logDev("Response Body (encrypted): %s", string(encryptedBytes))
 		logDev("Response Body length: %d", len(encryptedBytes))
+	}
+
+	if nonce != "" {
+		// read the updated agg-signature and function chain
+		logDev("Response Ce-Nonce header found: %s", nonce)
+
+		chain, aggSig := kr.GetAggSignatureAndChain(nonce)
+		if chain == "" || aggSig == "" {
+			logDev("agg-signature or function chain for nonce not found, setting to 'unknown'")
+			chain = "unknown"
+			aggSig = "unknown"
+		}
+		resp.Header.Set("Ce-Aggsignature", aggSig)
+		resp.Header.Set("Ce-Functionchain", chain)
 	}
 
 	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))

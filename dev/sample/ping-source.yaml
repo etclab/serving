@@ -1,13 +1,18 @@
-# apiVersion: sources.knative.dev/v1
-# kind: PingSource
-# metadata:
-#   name: ping-source
-# spec:
-#   schedule: "*/1 * * * *"
-#   contentType: "application/json"
-#   data: '{"MESSAGE": "HELLO WORLD!"}' # assume uppercase as encrypted
-#   sink:
-#     ref:
-#       apiVersion: eventing.knative.dev/v1
-#       kind: Broker
-#       name: broker
+apiVersion: sources.knative.dev/v1
+kind: PingSource
+metadata:
+  name: ping-source
+spec:
+  schedule: "*/1 * * * *"
+  contentType: "application/json"
+  data: '{"MESSAGE": "HELLO WORLD!"}' # assume uppercase as encrypted
+  ceOverrides:
+    extensions:
+      nonce: "1257894000"
+      aggSignature: ""
+      functionChain: ""
+  sink:
+    ref:
+      apiVersion: eventing.knative.dev/v1
+      kind: Broker
+      name: broker

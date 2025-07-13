@@ -126,6 +126,10 @@ func encryptWithLeaderKey(plainBytes []byte) []byte {
 	return []byte{}
 }
 
+// these three headers are used for signature aggregation
+// nonce: "1257894000"
+// aggSignature: ""
+// functionChain: ""
 func getTargetForBroker() TargetSLA {
 	targetSla := TargetSLA{
 		slaMin: minDefault,
@@ -141,11 +145,14 @@ func getTargetForBroker() TargetSLA {
 		// Body:   encryptWithLeaderKey(plainBody),
 		Body: plainBody,
 		Header: http.Header{
-			"Content-Type":   []string{"application/json"},
-			"Ce-Id":          []string{uuid.New().String()},
-			"Ce-Specversion": []string{"1.0"},
-			"Ce-Type":        []string{"dev.knative.sources.ping"},
-			"Ce-Source":      []string{"/apis/v1/namespaces/default/pingsources/ping-source"},
+			"Content-Type":     []string{"application/json"},
+			"Ce-Id":            []string{uuid.New().String()},
+			"Ce-Specversion":   []string{"1.0"},
+			"Ce-Type":          []string{"dev.knative.sources.ping"},
+			"Ce-Source":        []string{"/apis/v1/namespaces/default/pingsources/ping-source"},
+			"Ce-Nonce":         []string{"1257894000"},
+			"Ce-Aggsignature":  []string{""},
+			"Ce-Functionchain": []string{""},
 		},
 	}
 
