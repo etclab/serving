@@ -22,6 +22,8 @@ screen -dmS influx-port-forward kubectl port-forward -n influx svc/local-influx-
 export INFLUX_URL=http://localhost:9080
 export INFLUX_TOKEN=$(kubectl get secret local-influx-influxdb2-auth -o "jsonpath={.data['admin-token']}" --namespace influx | base64 --decode)
 
+sed -i 's/^\(INFLUX_TOKEN=\).*/\1'${INFLUX_TOKEN}'/' ${SCRIPT_DIR}/env.sh
+
 sleep 5
 # Run the script to initialize the Organization + Buckets in InfluxDB
 $TEST_DIR/performance/visualization/setup-influx-db.sh
