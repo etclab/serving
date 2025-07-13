@@ -1,0 +1,97 @@
+#!/bin/bash
+
+ns=default
+
+# client is the vegeta load generator (key pair, public key, public params)
+CLIENT_KP='{"pk":{"g1_to_a":"AG/wwus8WJWrxzjJhhpRncAAhAdFIlpGu5yvuvKngNYEo9yn7j/GuaZkuCXuhksyBYjctO1o6Ez2x6sl8IcXcQqk1+ifh2yhDxv3Np1pW7HhLnawvU4ATaLEaAtJN9nJ","g2_to_a":"AE7YLZS2tVEJCIPL5eTeFDooSe9yvJN7+8qXS1oppCBd6fgoU0jt9sIEYSQeth6/AuNqd0xGmHpdxmudUJAzZ8KPV52nDyCy4mcYs5gErgtz+K+ptSdUT/E9PC9hAwMiErn3MySvqbqmIcJcTS7bPQN7xf39NalAbF17yTBG0OtirBFpdW5QU8IKm+OylgIGF50JhonM0cxO90ovnx7IP47rgtdbvrccswHX12jQIJMZC9JYbpTn3FiZYRd11m6C"},"sk":"GAMl6pg83q06VkwUfLWR0k0O/xgTqP72fwSEJ0TE5x0="}'
+CLIENT_PK='{"g1_to_a":"AG/wwus8WJWrxzjJhhpRncAAhAdFIlpGu5yvuvKngNYEo9yn7j/GuaZkuCXuhksyBYjctO1o6Ez2x6sl8IcXcQqk1+ifh2yhDxv3Np1pW7HhLnawvU4ATaLEaAtJN9nJ","g2_to_a":"AE7YLZS2tVEJCIPL5eTeFDooSe9yvJN7+8qXS1oppCBd6fgoU0jt9sIEYSQeth6/AuNqd0xGmHpdxmudUJAzZ8KPV52nDyCy4mcYs5gErgtz+K+ptSdUT/E9PC9hAwMiErn3MySvqbqmIcJcTS7bPQN7xf39NalAbF17yTBG0OtirBFpdW5QU8IKm+OylgIGF50JhonM0cxO90ovnx7IP47rgtdbvrccswHX12jQIJMZC9JYbpTn3FiZYRd11m6C"}'
+CLIENT_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
+
+# leader of the chain
+LEADER_KP='{"pk":{"g1_to_a":"GI2MQLdca2zEshws+rHnXX30+Y3nbWeuHkxyHX4y/0wPBD8SpDv3bLmGZcY+DWqgAHi+USuucatE+kjr9WiXa7ltYYZH/BghL4ZzHGbePkht+jyt1STK/olI4YTSZFsB","g2_to_a":"EEWBpuXIL+QCDvD007b0N712SDpaKj19WTX0Sv1s8BuwwoOED09Lq9UDMGVsnJQtEcdMBkmLFinpHW5zr2ZCH1tb8lBSRms0xzAewRQ1+VLyhdCZrj9wVo9s1gb3r48GAVZ5GcxMbvVi5PDu1jHXiIauoEXui3VYtADMCVl+VlMKNneLVao2qYVg8tqtzOeBCk2BKB36jLPvAmyAxpKTJ5u+tph5XNo4y5+sqx4O/Ci/piNzPeACC3yHyE9bpSaX"},"sk":"bSt58suS+D4WmPSsJ2CqEIul/clZz7inBqaHpdz7qbk="}'
+LEADER_PK='{"g1_to_a":"GI2MQLdca2zEshws+rHnXX30+Y3nbWeuHkxyHX4y/0wPBD8SpDv3bLmGZcY+DWqgAHi+USuucatE+kjr9WiXa7ltYYZH/BghL4ZzHGbePkht+jyt1STK/olI4YTSZFsB","g2_to_a":"EEWBpuXIL+QCDvD007b0N712SDpaKj19WTX0Sv1s8BuwwoOED09Lq9UDMGVsnJQtEcdMBkmLFinpHW5zr2ZCH1tb8lBSRms0xzAewRQ1+VLyhdCZrj9wVo9s1gb3r48GAVZ5GcxMbvVi5PDu1jHXiIauoEXui3VYtADMCVl+VlMKNneLVao2qYVg8tqtzOeBCk2BKB36jLPvAmyAxpKTJ5u+tph5XNo4y5+sqx4O/Ci/piNzPeACC3yHyE9bpSaX"}'
+LEADER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
+
+# member of the chain
+MEMBER_KP='{"pk":{"g1_to_a":"FkEttU1JHgpey6tR3J+SB5LmRGaR3Fo8BPLhm8JIQ7cXdXMOV7rUExycW6WekVq3Aq64BzPFi0fSDyNUDGPJKS9+kkMLgcFr/lElwjUGkqXSstwDG5K55NMU/FZDeBKd","g2_to_a":"Dnk+By/rcvrkAdDJSrClYjLGeoOfjj78o+bfi4Z7yT4Xu5U/UsUJWaQjVY1+Bkc6GVULH/f9AriGpd1rYLel4rz3qxLuEkx0JrwDpMh1DLkIIuE8slPCaGb3flqLGXJuA04cxE6M0A6JTEAqftu2R+rHww2Zj6nbAJu43Q3Al8214FhUwTPmhE7KuG3f1yWJFhSvLW2jhIKH0F2XDBhse4qIGBY5gtW3FtRq/R4T+y2sXfcfYee4gpRRaYt6mJfu"},"sk":"BHV+ZaRA/489V2tXPyVDK22DNn4p66JObNfLG7iyOaI="}'
+MEMBER_PK='{"g1_to_a":"FkEttU1JHgpey6tR3J+SB5LmRGaR3Fo8BPLhm8JIQ7cXdXMOV7rUExycW6WekVq3Aq64BzPFi0fSDyNUDGPJKS9+kkMLgcFr/lElwjUGkqXSstwDG5K55NMU/FZDeBKd","g2_to_a":"Dnk+By/rcvrkAdDJSrClYjLGeoOfjj78o+bfi4Z7yT4Xu5U/UsUJWaQjVY1+Bkc6GVULH/f9AriGpd1rYLel4rz3qxLuEkx0JrwDpMh1DLkIIuE8slPCaGb3flqLGXJuA04cxE6M0A6JTEAqftu2R+rHww2Zj6nbAJu43Q3Al8214FhUwTPmhE7KuG3f1yWJFhSvLW2jhIKH0F2XDBhse4qIGBY5gtW3FtRq/R4T+y2sXfcfYee4gpRRaYt6mJfu"}'
+MEMBER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7CLP0geOqoPGgnjDtdB2K5Pz14JXV0Ar2ANsYyywEs+3QPMdEooiK5AyqIylGxefh","g2":"E+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24BgbEoC6nNMwyrNKwK8KLmcs+KH6Fp2OvJnSSq1cumas/Nw0nXOwdoaqpB1/wX3m+DOXVJ3J9bhGMyc3G2i41Gq39m6qMvdOnbUKaaVFg0SySOsnMO6yiieGTVIYIuCgB","z":"D0HlhmO/CM8GhnLL0Bp+xzuspNcsqTVE3v9oa/1t9UPUjqokr+R+Hv3kSTg7Z2YxBMWBI00IapkCJJtkco/9IaGJ6Hk1qVQFHHzbp7OHJimk+vwFBmJFy5EI8CQtD+PvAzUPVaeu/NPDG0/LbOV3HMag6XhqtZczIMgGrTYIKRB7qBDFoJ/92b4ikaDCWpmiEbi0JM1Ivzj872gIOwsOxcgak7Mw7hpnfQ0V/3uYTol470iIHjL6yRuTtHMz4rpXBvuiPrfFrw2fgJQMp3G2/9WFe6ryIuuVp9KAnWG/4C4b/Rto/wLwuBAq4cLV1asaGfJjN9IF+0ac1r0Vw9WgTciHhPuz0LLb3qVNQ7K3Pyy7EtWDhqhwPg+UgibkfuidAYEHFU8lp2S9PHmTekW4RUbaY0uPa+FKgGHlXM66R4sj99rKo1yMp4vq6WJARbS2AbL1Ikc9FxOREluoTcQAfPvy+Np1L3x0GFID/MpYmscZw03/u6rYQx2tHB+1l6qlGTUCuG7biFfCc/oHWlBRKTfgeU4eZadhfJDYvWYGWx//5R16V5lzsTFQIew8GZNPE2i7RFx8LSCXA/I5aJzjTAN4po5yprOyFtoOIqUDG1Td/1cwk5azjIgcTISewj6HCJocW0blEQuGdQ7GpTI0iGioQEVIPJK3r1r2iUUur6vxqJQ+UEOfHVmIKpjqoBcPElDr2HH8CpKnstgxaNDXJyctRBvvoVxQPdjpDOmNs+e20ZT2CDnFCKhDBarKF4m2"}'
+
+# function mode can be SINGLE or CHAIN
+# SINGLE meaning client invokes a single function directly and expects a response
+# CHAIN meaning client invokes a function that in turn invokes another function
+# FUNCTION_MODE='SINGLE'
+# FUNCTION_MODE=''
+FUNCTION_MODE='CHAIN'
+
+FUNCTION_CHAIN="validate-fun/vote-fun/count-vote-fun/display-fun"
+
+# RSA key for tests
+# we inject with env vars to the queue-proxy container and clients for now 
+# ideally there's a trusted key registry that makes an attested TLS with each
+# function,client and provisions an RSA key pair they can use for encrypting
+RSA_SK='-----BEGIN PRIVATE KEY-----
+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
+71FNC/BakPDBF2fXOQA7Ywvs
+-----END PRIVATE KEY-----'
+
+ATTACH_SIGNATURE=''
+
+
+# pre-config secret is used to provide static keys for function invocation
+kubectl delete secret pre-config -n $ns --ignore-not-found=true
+
+# enable when using static pre-keys for encryption
+kubectl create secret generic pre-config -n $ns \
+  --from-literal=leader_kp="${LEADER_KP}" \
+  --from-literal=leader_pk="${LEADER_PK}" \
+  --from-literal=leader_pp="${LEADER_PP}" \
+  --from-literal=member_kp="${MEMBER_KP}" \
+  --from-literal=member_pk="${MEMBER_PK}" \
+  --from-literal=member_pp="${MEMBER_PP}" \
+  --from-literal=client_kp="${CLIENT_KP}" \
+  --from-literal=client_pk="${CLIENT_PK}" \
+  --from-literal=client_pp="${CLIENT_PP}" \
+  --from-literal=function_mode="${FUNCTION_MODE}" \
+  --from-literal=function_chain="${FUNCTION_CHAIN}" 
+
+# # enable when using RSA keys for encryption
+# kubectl create secret generic pre-config -n $ns \
+#   --from-literal=function_mode="${FUNCTION_MODE}" \
+#   --from-literal=rsa_sk="${RSA_SK}"
