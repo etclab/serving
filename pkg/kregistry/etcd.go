@@ -1167,43 +1167,55 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		}
 
 		if functionMode == mutil.FunctionModeChain {
-			chainedServices := kr.GetFunctionChainFromEnv()
-			currentService := kr.ServiceName
-			currentServiceIndex := slices.Index(chainedServices, currentService)
-			nextServiceIndex := -1
-			if currentServiceIndex >= 0 { // this can be -1
-				nextServiceIndex = currentServiceIndex + 1
-			}
+			if kr.RSASecretKey != nil {
+				logDev("Function mode is CHAIN, but RSA private key is set, using RSA private key to encrypt message.")
+				logDev("RSA_SK is set, using it for encryption")
 
-			// later if we can, encrypt the response body for next service in the chain
-			// encrypt request at first (going from first -> second), and at second (going from second -> third)
-			if nextServiceIndex < 0 || nextServiceIndex > len(chainedServices) {
-				logDev("No next service in the chain, skipping proxy encryption")
-				encryptedBytes = plainBytes
-			} else if nextServiceIndex == len(chainedServices) {
-				logDev("We are at the end of the chain, no next service to encrypt for, so encrypting for client")
-				logDev("Using CLIENT_PP & CLIENT_PK to encrypt message.")
-
-				targetName := "client"
-
-				if kr.ClientPk == nil || kr.ClientPp == nil {
-					return fmt.Errorf("client public key or public parameters are not set")
-				}
-
-				encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName)
+				rsaPublicKey := kr.RSASecretKey.PublicKey
+				encryptedBytes, err = mutil.RSAEncrypt(&rsaPublicKey, plainBytes)
 				if err != nil {
-					return fmt.Errorf("failed to get default message: %v", err.Error())
+					return fmt.Errorf("failed to encrypt message using RSA private key: %v", err.Error())
 				}
 			} else {
-				nextService := chainedServices[nextServiceIndex]
-				logDev("Encrypting response body for next service %s in the chain: %s", nextService, chainedServices)
+				logDev("Function mode is CHAIN, using PRE to encrypt message")
+				chainedServices := kr.GetFunctionChainFromEnv()
+				currentService := kr.ServiceName
+				currentServiceIndex := slices.Index(chainedServices, currentService)
+				nextServiceIndex := -1
+				if currentServiceIndex >= 0 { // this can be -1
+					nextServiceIndex = currentServiceIndex + 1
+				}
 
-				nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
-				nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
+				// later if we can, encrypt the response body for next service in the chain
+				// encrypt request at first (going from first -> second), and at second (going from second -> third)
+				if nextServiceIndex < 0 || nextServiceIndex > len(chainedServices) {
+					logDev("No next service in the chain, skipping proxy encryption")
+					encryptedBytes = plainBytes
+				} else if nextServiceIndex == len(chainedServices) {
+					logDev("We are at the end of the chain, no next service to encrypt for, so encrypting for client")
+					logDev("Using CLIENT_PP & CLIENT_PK to encrypt message.")
 
-				encryptedBytes, err = mutil.PreEncrypt(nextServicePubParams, nextServicePubKey, plainBytes, nextService)
-				if err != nil {
-					return fmt.Errorf("failed to get default message: %v", err.Error())
+					targetName := "client"
+
+					if kr.ClientPk == nil || kr.ClientPp == nil {
+						return fmt.Errorf("client public key or public parameters are not set")
+					}
+
+					encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName)
+					if err != nil {
+						return fmt.Errorf("failed to get default message: %v", err.Error())
+					}
+				} else {
+					nextService := chainedServices[nextServiceIndex]
+					logDev("Encrypting response body for next service %s in the chain: %s", nextService, chainedServices)
+
+					nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
+					nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
+
+					encryptedBytes, err = mutil.PreEncrypt(nextServicePubParams, nextServicePubKey, plainBytes, nextService)
+					if err != nil {
+						return fmt.Errorf("failed to get default message: %v", err.Error())
+					}
 				}
 			}
 		}

@@ -788,22 +788,32 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 	case mutil.FunctionModeChain:
-		logDev("Function mode is CHAIN, getting the function chain from env var.")
-		chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
-		currentService := d.KeyRegistry.ServiceName
-		currentServiceIndex := slices.Index(chainedServices, currentService)
-		prevServiceIndex := currentServiceIndex - 1
+		if d.KeyRegistry.RSASecretKey != nil {
+			logDev("Function mode is CHAIN, but RSA private key is set, using RSA decryption instead of samba.")
+			plaintext, err = d.decryptRSAMessage(encBody)
+			if err != nil {
+				logDev("failed to decrypt message using RSA private key: %v", err.Error())
+				return nil, err
+			}
+		} else {
+			logDev("Function mode is CHAIN, getting the function chain from env var.")
+			chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
+			currentService := d.KeyRegistry.ServiceName
+			currentServiceIndex := slices.Index(chainedServices, currentService)
+			prevServiceIndex := currentServiceIndex - 1
 
-		if prevServiceIndex < 0 {
-			logDev("Message to `first` service is sent encrypted by client")
+			if prevServiceIndex < 0 {
+				logDev("Message to `first` service is sent encrypted by client")
+			}
+			logDev("decrypting message for service %s in chain %v", currentService, chainedServices)
+			// decrypt the ciphertext, get the plaintext
+			plaintext, err = d.decryptSambaMessage(encBody)
+			if err != nil {
+				logDev("Error decrypting message: %v", err)
+				return nil, err
+			}
 		}
-		logDev("decrypting message for service %s in chain %v", currentService, chainedServices)
-		// decrypt the ciphertext, get the plaintext
-		plaintext, err = d.decryptSambaMessage(encBody)
-		if err != nil {
-			logDev("Error decrypting message: %v", err)
-			return nil, err
-		}
+
 	default:
 		logDev("Function mode is %s, not implemented", functionMode)
 		plaintext = encBody

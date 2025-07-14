@@ -221,14 +221,61 @@ func MarshalRSAPrivateKeyToPEM(sk *rsa.PrivateKey) ([]byte, error) {
 	return pemData, nil
 }
 
+// uses chunked version of encrypt/decrypt
+// from: https://stackoverflow.com/a/67035019/7358595
+// to handle "crypto/rsa: message too long for RSA key size" error
 func RSAEncrypt(pk *rsa.PublicKey, msg []byte) ([]byte, error) {
-	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pk, msg, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to RSA encrypt: %v", err)
+	hash := sha256.New()
+	random := rand.Reader
+	msgLen := len(msg)
+	step := pk.Size() - 2*hash.Size() - 2
+	var encryptedBytes []byte
+
+	for start := 0; start < msgLen; start += step {
+		finish := start + step
+		if finish > msgLen {
+			finish = msgLen
+		}
+
+		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, pk, msg[start:finish], nil)
+		if err != nil {
+			return nil, err
+		}
+
+		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
 	}
-	return ciphertext, nil
+
+	return encryptedBytes, nil
+
+	// ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pk, msg, nil)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to RSA encrypt: %v", err)
+	// }
+	// return ciphertext, nil
 }
 
 func RSADecrypt(sk *rsa.PrivateKey, ciphertext []byte) ([]byte, error) {
-	return rsa.DecryptOAEP(sha256.New(), rand.Reader, sk, ciphertext, nil)
+	msgLen := len(ciphertext)
+	hash := sha256.New()
+	random := rand.Reader
+	step := sk.PublicKey.Size()
+	var decryptedBytes []byte
+
+	for start := 0; start < msgLen; start += step {
+		finish := start + step
+		if finish > msgLen {
+			finish = msgLen
+		}
+
+		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, sk, ciphertext[start:finish], nil)
+		if err != nil {
+			return nil, err
+		}
+
+		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
+	}
+
+	return decryptedBytes, nil
+
+	// return rsa.DecryptOAEP(sha256.New(), rand.Reader, sk, ciphertext, nil)
 }
