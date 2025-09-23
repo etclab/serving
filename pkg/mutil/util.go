@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 
 	bls "github.com/cloudflare/circl/ecc/bls12381"
@@ -25,7 +24,7 @@ const NonceSize = 12
 
 func LogWithPrefix(prefix string) func(format string, v ...interface{}) {
 	return func(format string, v ...interface{}) {
-		log.Printf("["+prefix+"] "+format, v...)
+		// log.Printf("["+prefix+"] "+format, v...)
 	}
 }
 

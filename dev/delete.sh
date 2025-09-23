@@ -5,7 +5,7 @@ ns=default
 kubectl delete -f dev/sample/
 # kubectl delete -f dev/baseline/
 # kubectl delete -f dev/member/
-# kubectl delete -f dev/both/
+kubectl delete -f dev/both/
 # kubectl delete -f dev/leader/
 kubectl delete -f dev/yaml/lease-roles.yaml
 

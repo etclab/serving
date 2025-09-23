@@ -47,7 +47,7 @@ spec:
       containers:
         - name: web-svc-runner
           image: ko://knative.dev/serving/test/performance/benchmarks/emojivoto
-          args: ["-target=broker-ingress", "--duration=5s"]
+          args: ["-target=broker-ingress", "--duration=15m"]
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:

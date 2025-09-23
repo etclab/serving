@@ -10,7 +10,7 @@ kubectl apply -f dev/yaml/lease-roles.yaml
 kubectl apply -f dev/sample/
 # kubectl apply -f dev/baseline/
 # kubectl apply -f dev/leader/
-# kubectl apply -f dev/both/
+kubectl apply -f dev/both/
 
 kubectl wait --for=condition=ready services.serving.knative.dev --all --timeout=300s
 kubectl wait --for=condition=ready pods --all --timeout=300s

@@ -74,6 +74,7 @@ kENAu0XK5OgzgmfzJKkIsJqfNK1SW0kSvYJ33qd96Q355QnGi0KkQyDZhn5vasiK
 -----END PRIVATE KEY-----'
 
 ATTACH_SIGNATURE='true'
+# ATTACH_SIGNATURE='false'
 
 
 # pre-config secret is used to provide static keys for function invocation
@@ -97,4 +98,6 @@ kubectl create secret generic pre-config -n $ns \
 # # enable when using RSA keys for encryption
 # kubectl create secret generic pre-config -n $ns \
 #   --from-literal=function_mode="${FUNCTION_MODE}" \
-#   --from-literal=rsa_sk="${RSA_SK}"
+#   --from-literal=function_chain="${FUNCTION_CHAIN}" \
+#   --from-literal=rsa_sk="${RSA_SK}" \
+#   --from-literal=attach_signature="${ATTACH_SIGNATURE}"

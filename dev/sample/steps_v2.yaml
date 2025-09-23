@@ -1,0 +1,152 @@
+# https://knative.dev/docs/serving/autoscaling/concurrency/#hard-limit
+# https://knative.dev/docs/serving/services/configure-requests-limits-services/#configure-queue-proxy-resources
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: validate-fun
+# spec:
+#   template:
+#     metadata:
+#       annotations:
+#         autoscaling.knative.dev/min-scale: "1"
+#         autoscaling.knative.dev/max-scale: "3"
+#         queue.sidecar.serving.knative.dev/cpu-resource-request: "500m"
+#         queue.sidecar.serving.knative.dev/cpu-resource-limit: "500m"
+#         queue.sidecar.serving.knative.dev/memory-resource-request: "512Mi"
+#         queue.sidecar.serving.knative.dev/memory-resource-limit: "1Gi"
+#     spec:
+#       containerConcurrency: 100
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers:
+#         - image: atosh502/validate-fun:latest
+#           resources:
+#             requests:
+#               cpu: "500m"
+#               memory: "512Mi"
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#               memory: "1Gi"
+#               cpu: "500m"
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf
+# ---
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: vote-fun
+# spec:
+#   template:
+#     metadata:
+#       annotations:
+#         autoscaling.knative.dev/min-scale: "1"
+#         autoscaling.knative.dev/max-scale: "3"
+#         queue.sidecar.serving.knative.dev/cpu-resource-request: "500m"
+#         queue.sidecar.serving.knative.dev/cpu-resource-limit: "500m"
+#         queue.sidecar.serving.knative.dev/memory-resource-request: "512Mi"
+#         queue.sidecar.serving.knative.dev/memory-resource-limit: "1Gi"
+#     spec:
+#       containerConcurrency: 100
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers:
+#         - image: atosh502/vote-fun:latest
+#           resources:
+#             requests:
+#               cpu: "500m"
+#               memory: "512Mi"
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#               memory: "1Gi"
+#               cpu: "500m"
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf
+# ---
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: count-vote-fun
+# spec:
+#   template:
+#     metadata:
+#       annotations:
+#         autoscaling.knative.dev/min-scale: "1"
+#         autoscaling.knative.dev/max-scale: "3"
+#         queue.sidecar.serving.knative.dev/cpu-resource-request: "500m"
+#         queue.sidecar.serving.knative.dev/cpu-resource-limit: "500m"
+#         queue.sidecar.serving.knative.dev/memory-resource-request: "512Mi"
+#         queue.sidecar.serving.knative.dev/memory-resource-limit: "1Gi"
+#     spec:
+#       containerConcurrency: 100
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers:
+#         - image: atosh502/count-vote-fun:latest
+#           resources:
+#             requests:
+#               cpu: "500m"
+#               memory: "512Mi"
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#               memory: "1Gi"
+#               cpu: "500m"
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf
+# ---
+# apiVersion: serving.knative.dev/v1
+# kind: Service
+# metadata:
+#   name: display-fun
+# spec:
+#   template:
+#     metadata:
+#       annotations:
+#         autoscaling.knative.dev/min-scale: "1"
+#         autoscaling.knative.dev/max-scale: "3"
+#         queue.sidecar.serving.knative.dev/cpu-resource-request: "500m"
+#         queue.sidecar.serving.knative.dev/cpu-resource-limit: "500m"
+#         queue.sidecar.serving.knative.dev/memory-resource-request: "512Mi"
+#         queue.sidecar.serving.knative.dev/memory-resource-limit: "1Gi"
+#     spec:
+#       containerConcurrency: 100
+#       volumes:
+#       - name: sgx-default-qcnl-local-volume
+#         configMap:
+#           name: sgx-default-qcnl-local
+#       containers:
+#         - image: atosh502/display-fun:latest
+#           env:
+#           - name: TYPE
+#             value: "samples.http.mod3"
+#           resources:
+#             requests:
+#               cpu: "500m"
+#               memory: "512Mi"
+#             limits:
+#               sgx.intel.com/epc: "512Ki"
+#               sgx.intel.com/enclave: 1
+#               sgx.intel.com/provision: 1
+#               memory: "1Gi"
+#               cpu: "500m"
+#           volumeMounts:
+#             - name: sgx-default-qcnl-local-volume
+#               mountPath: /etc/sgx_default_qcnl.conf
+#               subPath: sgx_default_qcnl.conf

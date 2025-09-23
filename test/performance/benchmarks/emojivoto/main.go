@@ -50,7 +50,8 @@ var (
 )
 
 func getDefaultMessage() []byte {
-	msgBytes := []byte(`{"id":0,"message":"Hi"}`)
+	// msgBytes := []byte(`{"id":0,"message":"Hi"}`)
+	msgBytes := []byte(`{"shortcode":":dog:"}`)
 
 	functionMode := mutil.FunctionMode(os.Getenv("FUNCTION_MODE"))
 	log.Printf("Function mode: %s", functionMode)
@@ -142,8 +143,9 @@ func getTargetForBroker() TargetSLA {
 	targetSla.target = vegeta.Target{
 		Method: http.MethodPost,
 		URL:    brokerUrl,
-		// Body:   encryptWithLeaderKey(plainBody),
-		Body: plainBody,
+		Body:   encryptWithLeaderKey(plainBody),
+		// Body: plainBody,
+		// Body: getDefaultMessage(),
 		Header: http.Header{
 			"Content-Type":     []string{"application/json"},
 			"Ce-Id":            []string{uuid.New().String()},

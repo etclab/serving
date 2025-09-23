@@ -1,0 +1,570 @@
+[
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "d7eeaf4b524b3bad",
+        "id": "9aa028183424a61f",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640107108,
+        "duration": 19000,
+        "localEndpoint": {
+            "serviceName": "second-00001-deployment-76b7df4b46-5jqr8",
+            "ipv4": "10.244.1.141"
+        },
+        "tags": {
+            "http.host": "second.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://127.0.0.1:8080/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "143d377f7072d03a",
+        "id": "d7eeaf4b524b3bad",
+        "name": "queue_proxy",
+        "timestamp": 1752215640106108,
+        "duration": 20000,
+        "localEndpoint": {
+            "serviceName": "second-00001-deployment-76b7df4b46-5jqr8",
+            "ipv4": "10.244.1.141"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "89f139e96b6a8356",
+        "id": "143d377f7072d03a",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640105108,
+        "duration": 21000,
+        "localEndpoint": {
+            "serviceName": "second-00001-deployment-76b7df4b46-5jqr8",
+            "ipv4": "10.244.1.141"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640105108,
+                "value": "Received 48 bytes"
+            },
+            {
+                "timestamp": 1752215640126108,
+                "value": "Sent 63 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "10.244.1.141:8012",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "e63ed563f69d863e",
+        "id": "c7cff63ac88c8546",
+        "name": "throttler_try",
+        "timestamp": 1752215640105110,
+        "duration": 11,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "a86018129a7b844e",
+        "id": "89f139e96b6a8356",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640105199,
+        "duration": 22535,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "tags": {
+            "http.host": "",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://10.244.1.141:8012/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "e63ed563f69d863e",
+        "id": "a86018129a7b844e",
+        "name": "activator_proxy",
+        "timestamp": 1752215640105126,
+        "duration": 22621,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "0dd611c9a28ab721",
+        "id": "e63ed563f69d863e",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640105054,
+        "duration": 22710,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640105070,
+                "value": "Received 48 bytes"
+            },
+            {
+                "timestamp": 1752215640127744,
+                "value": "Sent 63 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "second.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "fd0bf78f389b75e3",
+        "id": "4684606c8f6ed6e6",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640079108,
+        "duration": 12000,
+        "localEndpoint": {
+            "serviceName": "first-00001-deployment-f7486f58f-j6fqs",
+            "ipv4": "10.244.1.140"
+        },
+        "tags": {
+            "http.host": "first.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://127.0.0.1:8080/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "b4938db3e1c714e0",
+        "id": "fd0bf78f389b75e3",
+        "name": "queue_proxy",
+        "timestamp": 1752215640077108,
+        "duration": 15000,
+        "localEndpoint": {
+            "serviceName": "first-00001-deployment-f7486f58f-j6fqs",
+            "ipv4": "10.244.1.140"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "05aeb38c24af8736",
+        "id": "b4938db3e1c714e0",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640076108,
+        "duration": 16000,
+        "localEndpoint": {
+            "serviceName": "first-00001-deployment-f7486f58f-j6fqs",
+            "ipv4": "10.244.1.140"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640076108,
+                "value": "Received 27 bytes"
+            },
+            {
+                "timestamp": 1752215640092108,
+                "value": "Sent 48 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "10.244.1.140:8012",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "62fb4e07afe28a1e",
+        "id": "438c70de80d18926",
+        "name": "throttler_try",
+        "timestamp": 1752215640076183,
+        "duration": 12,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "241d92b552c0882e",
+        "id": "05aeb38c24af8736",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640076281,
+        "duration": 17593,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "tags": {
+            "http.host": "",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://10.244.1.140:8012/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "62fb4e07afe28a1e",
+        "id": "241d92b552c0882e",
+        "name": "activator_proxy",
+        "timestamp": 1752215640076201,
+        "duration": 17703,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "cae9a0b278ba97fc",
+        "id": "62fb4e07afe28a1e",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640076107,
+        "duration": 17833,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640076126,
+                "value": "Received 27 bytes"
+            },
+            {
+                "timestamp": 1752215640093898,
+                "value": "Sent 48 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "first.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "51d73461d51047dc",
+        "id": "066c0cb0f46b657a",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640174099,
+        "duration": 2129,
+        "localEndpoint": {
+            "serviceName": "sequence-display-00001-deployment-86784f7944-c6j65",
+            "ipv4": "10.244.1.138"
+        },
+        "tags": {
+            "http.host": "sequence-display.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://127.0.0.1:8080/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "9c425d12b6b5283e",
+        "id": "51d73461d51047dc",
+        "name": "queue_proxy",
+        "timestamp": 1752215640173981,
+        "duration": 2476,
+        "localEndpoint": {
+            "serviceName": "sequence-display-00001-deployment-86784f7944-c6j65",
+            "ipv4": "10.244.1.138"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "917846a2fae07a96",
+        "id": "9c425d12b6b5283e",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640173836,
+        "duration": 2686,
+        "localEndpoint": {
+            "serviceName": "sequence-display-00001-deployment-86784f7944-c6j65",
+            "ipv4": "10.244.1.138"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640173858,
+                "value": "Received 78 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "10.244.1.138:8012",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "eec5e11c85147e7e",
+        "id": "cf5603f456037d86",
+        "name": "throttler_try",
+        "timestamp": 1752215640173303,
+        "duration": 9,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "b0e724cb28f27b8e",
+        "id": "917846a2fae07a96",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640173349,
+        "duration": 3424,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "tags": {
+            "http.host": "",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://10.244.1.138:8012/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "eec5e11c85147e7e",
+        "id": "b0e724cb28f27b8e",
+        "name": "activator_proxy",
+        "timestamp": 1752215640173316,
+        "duration": 3474,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "0118e1d1344655d1",
+        "id": "eec5e11c85147e7e",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640173273,
+        "duration": 3548,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640173283,
+                "value": "Received 78 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "sequence-display.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "6a825bc03d59825e",
+        "id": "4b137d970f488166",
+        "name": "throttler_try",
+        "timestamp": 1752215640138259,
+        "duration": 7,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "2ca49e6ee136806e",
+        "id": "0d35c045b3257f76",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640138308,
+        "duration": 19600,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "tags": {
+            "http.host": "",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://10.244.1.139:8012/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "6a825bc03d59825e",
+        "id": "2ca49e6ee136806e",
+        "name": "activator_proxy",
+        "timestamp": 1752215640138270,
+        "duration": 19656,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "50c282dfcc5ad746",
+        "id": "6a825bc03d59825e",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640138223,
+        "duration": 19722,
+        "localEndpoint": {
+            "serviceName": "activator-service",
+            "ipv4": "10.244.1.128"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640138237,
+                "value": "Received 63 bytes"
+            },
+            {
+                "timestamp": 1752215640157919,
+                "value": "Sent 78 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "third.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "0d35c045b3257f76",
+        "id": "061387889156eaa9",
+        "kind": "SERVER",
+        "name": "/",
+        "timestamp": 1752215640138108,
+        "duration": 18000,
+        "localEndpoint": {
+            "serviceName": "third-00001-deployment-58d7d469bd-chvrq",
+            "ipv4": "10.244.1.139"
+        },
+        "annotations": [
+            {
+                "timestamp": 1752215640138108,
+                "value": "Received 63 bytes"
+            },
+            {
+                "timestamp": 1752215640154109,
+                "value": "Sent 78 bytes"
+            }
+        ],
+        "tags": {
+            "http.host": "10.244.1.139:8012",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "b37397aa0e734c24",
+        "id": "60d4a7cc8b8fae9e",
+        "kind": "CLIENT",
+        "name": "/",
+        "timestamp": 1752215640142108,
+        "duration": 11000,
+        "localEndpoint": {
+            "serviceName": "third-00001-deployment-58d7d469bd-chvrq",
+            "ipv4": "10.244.1.139"
+        },
+        "tags": {
+            "http.host": "third.default.svc.cluster.local",
+            "http.method": "POST",
+            "http.path": "/",
+            "http.status_code": "200",
+            "http.url": "http://127.0.0.1:8080/",
+            "http.user_agent": "Go-http-client/1.1",
+            "opencensus.status_description": "OK"
+        }
+    },
+    {
+        "traceId": "50f2b5d6b86ea38baefc4d688801bd4a",
+        "parentId": "061387889156eaa9",
+        "id": "b37397aa0e734c24",
+        "name": "queue_proxy",
+        "timestamp": 1752215640140108,
+        "duration": 16000,
+        "localEndpoint": {
+            "serviceName": "third-00001-deployment-58d7d469bd-chvrq",
+            "ipv4": "10.244.1.139"
+        }
+    }
+]
