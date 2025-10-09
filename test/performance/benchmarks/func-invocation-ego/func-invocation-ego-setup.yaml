@@ -24,8 +24,12 @@ spec:
         # limit at a single pod
         autoscaling.knative.dev/minScale: "1"
         autoscaling.knative.dev/maxScale: "1"
-        # Always hook the activator in.
-        autoscaling.knative.dev/targetBurstCapacity: "-1"
+        # let ingress handle the load balancing
+        # activator is only in path when scaling from 0
+        autoscaling.knative.dev/targetBurstCapacity: "0"
+
+        # queue.sidecar.serving.knative.dev/cpu-resource-request: "10"
+        # queue.sidecar.serving.knative.dev/memory-resource-request: "512Mi"
     spec:
       volumes:
       - name: sgx-default-qcnl-local-volume
@@ -37,8 +41,12 @@ spec:
           - name: MESSAGE
             value: " - Handled by 0"
         resources:
+          # requests:
+          #   cpu: 1000m
+          #   memory: 512Mi
           limits:
             sgx.intel.com/epc: "512Ki"
+            # sgx.intel.com/epc: "32Mi"
             sgx.intel.com/enclave: 1
             sgx.intel.com/provision: 1
         volumeMounts:
