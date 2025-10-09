@@ -37,7 +37,8 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-rates=(250 500 750 1000 1250 1500)
+# rates=(250 500 750 1000 1250 1500)
+rates=(100)
 for rate in "${rates[@]}"; do
   echo "Running func-invocation-appender.yaml with rate: $rate"
 

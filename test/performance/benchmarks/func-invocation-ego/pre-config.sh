@@ -2,6 +2,8 @@
 
 ns=default
 
+# TODO: should create separate config files for ego, rsa, member and leader function modes
+
 # client is the vegeta load generator (key pair, public key, public params)
 CLIENT_KP='{"pk":{"g1_to_a":"AG/wwus8WJWrxzjJhhpRncAAhAdFIlpGu5yvuvKngNYEo9yn7j/GuaZkuCXuhksyBYjctO1o6Ez2x6sl8IcXcQqk1+ifh2yhDxv3Np1pW7HhLnawvU4ATaLEaAtJN9nJ","g2_to_a":"AE7YLZS2tVEJCIPL5eTeFDooSe9yvJN7+8qXS1oppCBd6fgoU0jt9sIEYSQeth6/AuNqd0xGmHpdxmudUJAzZ8KPV52nDyCy4mcYs5gErgtz+K+ptSdUT/E9PC9hAwMiErn3MySvqbqmIcJcTS7bPQN7xf39NalAbF17yTBG0OtirBFpdW5QU8IKm+OylgIGF50JhonM0cxO90ovnx7IP47rgtdbvrccswHX12jQIJMZC9JYbpTn3FiZYRd11m6C"},"sk":"GAMl6pg83q06VkwUfLWR0k0O/xgTqP72fwSEJ0TE5x0="}'
 CLIENT_PK='{"g1_to_a":"AG/wwus8WJWrxzjJhhpRncAAhAdFIlpGu5yvuvKngNYEo9yn7j/GuaZkuCXuhksyBYjctO1o6Ez2x6sl8IcXcQqk1+ifh2yhDxv3Np1pW7HhLnawvU4ATaLEaAtJN9nJ","g2_to_a":"AE7YLZS2tVEJCIPL5eTeFDooSe9yvJN7+8qXS1oppCBd6fgoU0jt9sIEYSQeth6/AuNqd0xGmHpdxmudUJAzZ8KPV52nDyCy4mcYs5gErgtz+K+ptSdUT/E9PC9hAwMiErn3MySvqbqmIcJcTS7bPQN7xf39NalAbF17yTBG0OtirBFpdW5QU8IKm+OylgIGF50JhonM0cxO90ovnx7IP47rgtdbvrccswHX12jQIJMZC9JYbpTn3FiZYRd11m6C"}'
@@ -68,7 +70,7 @@ FUNCTION_MODE='SINGLE'
 # 71FNC/BakPDBF2fXOQA7Ywvs
 # -----END PRIVATE KEY-----'
 
-ATTACH_SIGNATURE=''
+ATTACH_SIGNATURE='false'
 
 # pre-config secret is used to provide static keys for function invocation
 kubectl delete secret pre-config -n $ns --ignore-not-found=true
