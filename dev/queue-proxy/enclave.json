@@ -149,7 +149,7 @@
     {
         "name": "ENABLE_PROFILING",
         "fromHost": true,
-        "value": ""
+        "value": "true"
     },
     {
         "name": "SERVING_ENABLE_PROBE_REQUEST_LOG",
