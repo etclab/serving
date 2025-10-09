@@ -621,6 +621,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	if c.VolumeMounts == nil {
 		c.VolumeMounts = []corev1.VolumeMount{}
 	}
+	// NOTE: this isn't needed if we're running on Azure AKS with Intel SGX
 	c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
 
 	return c, nil

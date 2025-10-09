@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"slices"
 
 	"net/http"
@@ -376,7 +377,66 @@ func initEtcdWithRetry(d *Defaults) {
 	d.KeyRegistry.InitEtcdWithRetry()
 }
 
+func printFilesUnderProc() {
+	logDev := mutil.LogWithPrefix("dev - printFilesUnderProc")
+
+	logDev("=== EGO Enclave Environment Debug ===")
+
+	// Check /proc mounts
+	if entries, err := os.ReadDir("/proc"); err != nil {
+		logDev("ERROR: Cannot read /proc: %v", err)
+	} else {
+		logDev("/proc contains %d entries", len(entries))
+	}
+
+	// Check specific paths
+	checkPaths := []string{
+		"/proc/net/sockstat",
+		"/proc/net/tcp",
+		"/proc/net/tcp6",
+		"/proc/sys/net/core/somaxconn",
+		"/proc/sys/net/ipv4/ip_local_port_range",
+	}
+
+	for _, path := range checkPaths {
+		if stat, err := os.Stat(path); err != nil {
+			logDev("MISSING: %s - %v", path, err)
+		} else {
+			logDev("EXISTS: %s (mode: %v)", path, stat.Mode())
+			// Try to read it
+			if data, err := os.ReadFile(path); err != nil {
+				logDev("  Cannot read: %v", err)
+			} else {
+				logDev("  Content: %s", string(data)[:min(100, len(data))])
+			}
+		}
+	}
+
+	logDev("=== End Debug ===")
+}
+
+func startResourceMonitoring() {
+	logDev := mutil.LogWithPrefix("dev - startResourceMonitoring")
+
+	ticker := time.NewTicker(10 * time.Second)
+	go func() {
+		for range ticker.C {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+
+			logDev("Resource Stats: NumGoroutine=%d, Alloc=%dMB, Sys=%dMB, NumGC=%d",
+				runtime.NumGoroutine(),
+				m.Alloc/1024/1024,
+				m.Sys/1024/1024,
+				m.NumGC)
+		}
+	}()
+}
+
 func Main(opts ...Option) error {
+	printFilesUnderProc()
+	startResourceMonitoring()
+
 	d := Defaults{
 		Ctx: signals.NewContext(),
 	}
@@ -520,6 +580,7 @@ func Main(opts ...Option) error {
 
 	errCh := make(chan error)
 	for name, server := range httpServers {
+		logDev("Installed http server with name: %v", name)
 		go func(name string, s *http.Server) {
 			// Don't forward ErrServerClosed as that indicates we're already shutting down.
 			logger.Info("Starting http server ", name, s.Addr)
@@ -670,6 +731,10 @@ func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, err
 // decrypts the response for user-container
 func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logDev := mutil.LogWithPrefix("dev - RoundTrip")
+	start := time.Now()
+	defer func() {
+		logDev("RoundTrip took %v", time.Since(start))
+	}()
 
 	logDev("Request: %s %s\n", req.Method, req.URL.String())
 	for name, values := range req.Header {
@@ -683,6 +748,7 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		logDev("Request body is empty, skipping decryption logic.")
 		return d.Transport.RoundTrip(req)
 	}
+	defer req.Body.Close()
 
 	nonce := req.Header.Get("Ce-Nonce")
 	if nonce == "" {
@@ -745,7 +811,6 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		logDev("Error reading request body: %v", err)
 		return nil, err
 	}
-	req.Body.Close()
 	logDev("Request Body (encrypted): %s", string(encBody))
 
 	var plaintext []byte
