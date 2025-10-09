@@ -24,6 +24,7 @@ metadata:
   annotations:
     knative.dev/example-checksum: "54abd711"
 data:
+  profiling.enable: "true"
   _example: |
     ################################
     #                              #

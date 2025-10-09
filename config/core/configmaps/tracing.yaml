@@ -24,10 +24,10 @@ metadata:
   annotations:
     knative.dev/example-checksum: "26614636"
 data:
-  backend: "zipkin"
-  zipkin-endpoint: "http://zipkin.zipkin-monitoring.svc.cluster.local:9411/api/v2/spans"
+  # backend: "zipkin"
+  # zipkin-endpoint: "http://zipkin.zipkin-monitoring.svc.cluster.local:9411/api/v2/spans"
   # sample-rate: "0.05" # 5% of requests are traced
-  sample-rate: "0.05"
+  # sample-rate: "0.05"
   # debug: "true"
   _example: |
     ################################
