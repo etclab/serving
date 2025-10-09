@@ -182,7 +182,7 @@ func main() {
 	// 	},
 	// }
 	// attacker := vegeta.NewAttacker(vegeta.Timeout(30*time.Second), vegeta.Client(client))
-	attacker := vegeta.NewAttacker(vegeta.Timeout(30 * time.Second))
+	attacker := vegeta.NewAttacker(vegeta.Timeout(180*time.Second), vegeta.MaxWorkers(250))
 
 	influxReporter, err := performance.NewInfluxReporter(map[string]string{"target": *target})
 	if err != nil {
