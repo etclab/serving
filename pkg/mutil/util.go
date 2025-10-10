@@ -221,61 +221,60 @@ func MarshalRSAPrivateKeyToPEM(sk *rsa.PrivateKey) ([]byte, error) {
 	return pemData, nil
 }
 
-// uses chunked version of encrypt/decrypt
-// from: https://stackoverflow.com/a/67035019/7358595
-// to handle "crypto/rsa: message too long for RSA key size" error
 func RSAEncrypt(pk *rsa.PublicKey, msg []byte) ([]byte, error) {
-	hash := sha256.New()
-	random := rand.Reader
-	msgLen := len(msg)
-	step := pk.Size() - 2*hash.Size() - 2
-	var encryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, pk, msg[start:finish], nil)
-		if err != nil {
-			return nil, err
-		}
-
-		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
+	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pk, msg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to RSA encrypt: %v", err)
 	}
-
-	return encryptedBytes, nil
-
-	// ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pk, msg, nil)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to RSA encrypt: %v", err)
-	// }
-	// return ciphertext, nil
+	return ciphertext, nil
 }
 
 func RSADecrypt(sk *rsa.PrivateKey, ciphertext []byte) ([]byte, error) {
-	msgLen := len(ciphertext)
-	hash := sha256.New()
-	random := rand.Reader
-	step := sk.PublicKey.Size()
-	var decryptedBytes []byte
+	return rsa.DecryptOAEP(sha256.New(), rand.Reader, sk, ciphertext, nil)
+}
 
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
+func RSAHybridDecrypt(sk *rsa.PrivateKey, ciphertextWithKey []byte) ([]byte, error) {
+	// get the encrypted AES key
+	encKey := ciphertextWithKey[:sk.PublicKey.Size()]
+	ciphertext := ciphertextWithKey[sk.PublicKey.Size():]
 
-		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, sk, ciphertext[start:finish], nil)
-		if err != nil {
-			return nil, err
-		}
-
-		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
+	// decrypt the AES key with RSA private key
+	key, err := RSADecrypt(sk, encKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to RSA decrypt AES key: %v", err)
 	}
 
-	return decryptedBytes, nil
+	// decrypt the rest of the ciphertext with the decrypted AES key
+	plaintext, err := AESGCMDecrypt(key, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to AES decrypt: %v", err)
+	}
 
-	// return rsa.DecryptOAEP(sha256.New(), rand.Reader, sk, ciphertext, nil)
+	return plaintext, nil
+}
+
+func RSAHybridEncrypt(pk *rsa.PublicKey, msg []byte) ([]byte, error) {
+	// generate a random AES key
+	key := make([]byte, KeySize)
+	_, err := rand.Read(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate AES key: %w", err)
+	}
+
+	// encrypt the message with AES key
+	ciphertext, err := AESGCMEncrypt(key, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to AES encrypt: %v", err)
+	}
+
+	// encrypt the AES key with RSA public key
+	encKey, err := RSAEncrypt(pk, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to RSA encrypt AES key: %v", err)
+	}
+
+	// prepend the encrypted AES key to the ciphertext
+	ciphertextWithKey := append(encKey, ciphertext...)
+
+	return ciphertextWithKey, nil
 }

@@ -1152,7 +1152,7 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 			// prefer to use RSA secret key if available
 			if kr.RSASecretKey != nil {
 				logDev("Using RSA private key to encrypt message.")
-				encryptedBytes, err = mutil.RSAEncrypt(&kr.RSASecretKey.PublicKey, plainBytes)
+				encryptedBytes, err = mutil.RSAHybridEncrypt(&kr.RSASecretKey.PublicKey, plainBytes)
 				if err != nil {
 					log.Fatalf("failed to encrypt message using RSA private key: %v", err.Error())
 				}
@@ -1177,7 +1177,7 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 				logDev("RSA_SK is set, using it for encryption")
 
 				rsaPublicKey := kr.RSASecretKey.PublicKey
-				encryptedBytes, err = mutil.RSAEncrypt(&rsaPublicKey, plainBytes)
+				encryptedBytes, err = mutil.RSAHybridEncrypt(&rsaPublicKey, plainBytes)
 				if err != nil {
 					return fmt.Errorf("failed to encrypt message using RSA private key: %v", err.Error())
 				}

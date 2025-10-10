@@ -67,7 +67,7 @@ func getDefaultMessage() []byte {
 		}
 		log.Printf("RSA_SK is set, using it for encryption")
 
-		encMsgBytes, err := mutil.RSAEncrypt(&rsa_sk.PublicKey, msgBytes)
+		encMsgBytes, err := mutil.RSAHybridEncrypt(&rsa_sk.PublicKey, msgBytes)
 		if err != nil {
 			log.Fatalf("failed to encrypt message using RSA private key: %v", err.Error())
 		}

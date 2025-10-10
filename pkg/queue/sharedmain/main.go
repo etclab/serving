@@ -673,7 +673,7 @@ type DebugTransport struct {
 func (d *DebugTransport) decryptRSAMessage(encryptedBytes []byte) ([]byte, error) {
 	logDev := mutil.LogWithPrefix("dev - decryptRSAMessage")
 
-	plaintext, err := mutil.RSADecrypt(d.KeyRegistry.RSASecretKey, encryptedBytes)
+	plaintext, err := mutil.RSAHybridDecrypt(d.KeyRegistry.RSASecretKey, encryptedBytes)
 	if err != nil {
 		logDev("failed to decrypt message using RSA private key: %v", err.Error())
 		return nil, err
