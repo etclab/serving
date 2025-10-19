@@ -1228,11 +1228,11 @@ func (kr *KeyRegistry) CreateAggSignature(nonce string, aggSignature string) ([]
 // encrypts the response received from user-container
 func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	logDev := mutil.LogWithPrefix("dev - EncryptResponseBody")
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		logDev("EncryptResponseBody took %s", elapsed)
-	}()
+	// start := time.Now()
+	// defer func() {
+	// 	elapsed := time.Since(start)
+	// 	logDev("EncryptResponseBody took %s", elapsed)
+	// }()
 
 	logDev("Response: %s %s %d\n", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode)
 

@@ -429,8 +429,8 @@ func startResourceMonitoring() {
 }
 
 func Main(opts ...Option) error {
-	printFilesUnderProc()
-	startResourceMonitoring()
+	// printFilesUnderProc()
+	// startResourceMonitoring()
 
 	d := Defaults{
 		Ctx: signals.NewContext(),
@@ -732,10 +732,10 @@ func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, []b
 // decrypts the response for user-container
 func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logDev := mutil.LogWithPrefix("dev - RoundTrip")
-	start := time.Now()
-	defer func() {
-		logDev("RoundTrip took %v", time.Since(start))
-	}()
+	// start := time.Now()
+	// defer func() {
+	// 	logDev("RoundTrip took %v", time.Since(start))
+	// }()
 
 	logDev("Request: %s %s\n", req.Method, req.URL.String())
 	for name, values := range req.Header {
