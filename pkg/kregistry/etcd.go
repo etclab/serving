@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	bls "github.com/cloudflare/circl/ecc/bls12381"
 	"github.com/etclab/ncircl/aggsig/bgls03"
 	"github.com/etclab/pre"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -161,7 +163,12 @@ func (kr *KeyRegistry) SetupSignature(setupSignature bool, podId string) {
 	logDev := mutil.LogWithPrefix("dev - SetupSignature")
 	if setupSignature {
 		logDev("AttachSignature is enabled, generating bgls03 pp and key pair")
-		pp := bgls03.NewPublicParams()
+
+		pp, err := mutil.ParseSignaturePublicParams()
+		if err != nil {
+			logDev("failed to parse bgls public params: %v", err)
+		}
+
 		pk, sk := bgls03.KeyGen(pp)
 
 		kr.SigPp = pp
@@ -204,6 +211,67 @@ func (kr *KeyRegistry) SetupSignature(setupSignature bool, podId string) {
 	} else {
 		logDev("AttachSignature is disabled, skipping bgls03 pp and key pair generation")
 	}
+}
+
+func (kr *KeyRegistry) FetchSignatureVerificationInfo(podId string) (*bgls03.PublicKey,
+	*bgls03.PublicParams, []byte, error) {
+	logDev := mutil.LogWithPrefix("dev - FetchSignatureVerificationInfo")
+
+	signaturePrefix := "bgls03/" + podId
+
+	publicKeys, err := kr.RetrieveKV(signaturePrefix)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to retrieve bgls03 keys from etcd: %v", err)
+	}
+
+	var pk *bgls03.PublicKey
+	var pp *bgls03.PublicParams
+	var attestationReport []byte
+
+	logDev("fetched %d keys from etcd", len(publicKeys.Kvs))
+	for _, kv := range publicKeys.Kvs {
+		value := kv.Value
+		key := kv.Key
+
+		logDev("Received key: %s, value: %s", key, value)
+		keyStr := string(key)
+
+		// do something with the keys
+		if keyStr == signaturePrefix+"/pk" {
+			pks := new(bgls.PublicKeySerialized)
+			err := json.NewDecoder(bytes.NewReader(value)).Decode(pks)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to decode bgls public key: %v", err)
+			}
+
+			pk, err = pks.DeSerialize()
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to deserialize bgls public key: %v", err)
+			}
+		}
+
+		if keyStr == signaturePrefix+"/pp" {
+			pps := new(bgls.PublicParamsSerialized)
+			err := json.NewDecoder(bytes.NewReader(value)).Decode(pps)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to decode bgls public params: %v", err)
+			}
+
+			pp, err = pps.DeSerialize()
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to deserialize bgls public params: %v", err)
+			}
+		}
+
+		if keyStr == signaturePrefix+"/report" {
+			err := json.NewDecoder(bytes.NewReader(value)).Decode(&attestationReport)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to decode attestation report: %v", err)
+			}
+		}
+	}
+
+	return pk, pp, attestationReport, nil
 }
 
 func (kr *KeyRegistry) StoreBglsPublicKey(key string, publicKey *bgls03.PublicKey) error {
@@ -432,6 +500,22 @@ func (kr *KeyRegistry) Client() *clientv3.Client {
 	// and therefore will unblock immediately for any subsequent calls
 	<-kr.IsEtcdReady
 	return kr.client
+}
+
+func (kr *KeyRegistry) RetrieveKV(key string) (*clientv3.GetResponse, error) {
+	logDev := mutil.LogWithPrefix("dev - RetrieveKV")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	kvs, err := kr.Client().Get(ctx, key, clientv3.WithPrefix())
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve key: %s in etcd: %v", key, err)
+	}
+
+	logDev("retrieved key %v from etcd", key)
+	logDev("%+v", kvs.Kvs)
+	return kvs, nil
 }
 
 func (kr *KeyRegistry) StoreKV(key string, value string) error {
@@ -1093,6 +1177,54 @@ func (kr *KeyRegistry) GetDefaultFunctionChain() []string {
 	return strings.Split(servicesStr, "/")
 }
 
+func (kr *KeyRegistry) CreateAggSignature(nonce string, aggSignature string) ([]byte, error) {
+	logDev := mutil.LogWithPrefix("dev - CreateAggSignature")
+
+	var sigBytes []byte
+	if nonce == "" {
+		logDev("Response missing Ce-Nonce header, cannot add signature.")
+	} else {
+		// instanceId is unique instance id (or pod id) of the function
+		messageToSign := nonce + "|" + kr.PodId
+		logDev("Message to sign: %s", messageToSign)
+
+		// if existing signature then parse it and update it
+		existingAggSignature := aggSignature
+
+		// based on TestManySign() method in ncircle/aggsig/bgls03/bgls03_test.go
+		// https://github.com/etclab/ncircl/blob/7667a1b1a68bbbfaab501187acb5001ddc3a8754/aggsig/bgls03/bgls03_test.go#L36-L58
+		var aggSig *bgls03.Signature
+		if existingAggSignature == "" {
+			// first function in the chain
+			aggSig = bgls03.NewSignature()
+			bgls03.Sign(kr.SigPp, kr.SigSk, []byte(messageToSign), aggSig)
+		} else {
+			// if there's an existing signature, parse it and add to it
+			eSigBytes, err := hex.DecodeString(existingAggSignature)
+			if err != nil {
+				logDev("Error decoding existing signature from hex: %v", err)
+				return nil, err
+			}
+			g1 := new(bls.G1)
+			err = g1.SetBytes(eSigBytes)
+			if err != nil {
+				logDev("Error parsing existing signature bytes: %v", err)
+				return nil, err
+			}
+
+			aggSig = &bgls03.Signature{
+				Sig: g1,
+			}
+
+			bgls03.Sign(kr.SigPp, kr.SigSk, []byte(messageToSign), aggSig)
+		}
+
+		sigBytes = aggSig.Sig.BytesCompressed()
+	}
+
+	return sigBytes, nil
+}
+
 // encrypts the response received from user-container
 func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	logDev := mutil.LogWithPrefix("dev - EncryptResponseBody")
@@ -1114,6 +1246,9 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	}
 
 	nonce := resp.Header.Get("Ce-Nonce")
+	aggSignature := resp.Header.Get("Ce-Aggsignature")
+
+	var sigBytes []byte
 
 	// TODO: maybe implement streaming read/encryption?
 	plainBytes, err := io.ReadAll(resp.Body)
@@ -1164,7 +1299,12 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 					return fmt.Errorf("client public key or public parameters are not set")
 				}
 
-				encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName)
+				sigBytes, err = kr.CreateAggSignature(nonce, aggSignature)
+				if err != nil {
+					return fmt.Errorf("failed to create agg-signature: %v", err.Error())
+				}
+
+				encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName, sigBytes)
 				if err != nil {
 					return fmt.Errorf("failed to get default message: %v", err.Error())
 				}
@@ -1206,7 +1346,12 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 						return fmt.Errorf("client public key or public parameters are not set")
 					}
 
-					encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName)
+					sigBytes, err = kr.CreateAggSignature(nonce, aggSignature)
+					if err != nil {
+						return fmt.Errorf("failed to create agg-signature: %v", err.Error())
+					}
+
+					encryptedBytes, err = mutil.PreEncrypt(kr.ClientPp, kr.ClientPk, plainBytes, targetName, sigBytes)
 					if err != nil {
 						return fmt.Errorf("failed to get default message: %v", err.Error())
 					}
@@ -1217,7 +1362,12 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 					nextServicePubKey := kr.SafeReadEveryLeaderPublicKey(nextService)
 					nextServicePubParams := kr.SafeReadEveryLeaderPublicParams(nextService)
 
-					encryptedBytes, err = mutil.PreEncrypt(nextServicePubParams, nextServicePubKey, plainBytes, nextService)
+					sigBytes, err = kr.CreateAggSignature(nonce, aggSignature)
+					if err != nil {
+						return fmt.Errorf("failed to create agg-signature: %v", err.Error())
+					}
+
+					encryptedBytes, err = mutil.PreEncrypt(nextServicePubParams, nextServicePubKey, plainBytes, nextService, sigBytes)
 					if err != nil {
 						return fmt.Errorf("failed to get default message: %v", err.Error())
 					}
@@ -1229,20 +1379,6 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		logDev("Response Body length: %d", len(encryptedBytes))
 	}
 
-	if nonce != "" {
-		// read the updated agg-signature and function chain
-		logDev("Response Ce-Nonce header found: %s", nonce)
-
-		chain, aggSig := kr.GetAggSignatureAndChain(nonce)
-		if chain == "" || aggSig == "" {
-			logDev("agg-signature or function chain for nonce not found, setting to 'unknown'")
-			chain = "unknown"
-			aggSig = "unknown"
-		}
-		resp.Header.Set("Ce-Aggsignature", aggSig)
-		resp.Header.Set("Ce-Functionchain", chain)
-	}
-
 	resp.Body = io.NopCloser(bytes.NewReader(encryptedBytes))
 	resp.ContentLength = int64(len(encryptedBytes))
 	if strings.Contains(contentTypeStr, "grpc") {
@@ -1251,6 +1387,76 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 		resp.Header.Set("Content-Type", "application/json")
 	}
 	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
+
+	sigHex := hex.EncodeToString(sigBytes)
+	resp.Header.Set("Ce-Aggsignature", sigHex)
+	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
+
+	return nil
+}
+
+// how do I cancel the entire chain if verification fails? -> return an error
+func (kr *KeyRegistry) VerifySignature(signature []byte, functionChain string, nonce string) error {
+	logDev := mutil.LogWithPrefix("dev - VerifySignature")
+
+	if functionChain == "" || nonce == "" || signature == nil {
+		logDev("Function chain, nonce or signature is empty, skipping verification.")
+	} else {
+		chain := strings.Split(functionChain, "|")
+
+		pp, err := mutil.ParseSignaturePublicParams()
+		if err != nil {
+			return fmt.Errorf("failed to parse bgls public params: %v", err)
+		}
+
+		msgs := [][]byte{}
+		pks := []*bgls03.PublicKey{}
+		// aggSig := bgls03.NewSignature()
+
+		g1 := new(bls.G1)
+		err = g1.SetBytes(signature)
+		if err != nil {
+			return fmt.Errorf("error parsing existing signature bytes: %v", err)
+		}
+
+		aggSig := &bgls03.Signature{
+			Sig: g1,
+		}
+
+		for _, podId := range chain {
+			logDev("Verifying signature for podId: %s", podId)
+
+			// fetch pp, pk and reportBytes from etcd
+			pk, _, reportBytes, err := kr.FetchSignatureVerificationInfo(podId)
+			if err != nil {
+				return fmt.Errorf("failed to fetch signature verification info for podId %s: %v", podId, err)
+			}
+
+			// verify the report
+			report, err := enclave.VerifyRemoteReport(reportBytes)
+			if err != nil {
+				return fmt.Errorf("failed to verify remote report for podId %s: %v", podId, err)
+			}
+
+			logDev("Verified remote report for podId %s", podId)
+
+			// once report is verified, verify the signature
+			err = mutil.VerifyReport(report)
+			if err != nil {
+				return fmt.Errorf("report verification failed for podId %s: %v", podId, err)
+			}
+
+			msgs = append(msgs, []byte(nonce+"|"+podId))
+			pks = append(pks, pk)
+		}
+
+		err = bgls03.Verify(pp, pks, msgs, aggSig)
+		if err != nil {
+			return fmt.Errorf("signature verification failed for function chain %s: %v", functionChain, err)
+		} else {
+			logDev("Signature verification succeeded for function chain %s", functionChain)
+		}
+	}
 
 	return nil
 }

@@ -95,7 +95,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: pre-config 
-                  key: rsa_sk 
+                  key: rsa_sk
+            - name: ATTACH_SIGNATURE 
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: attach_signature  
           resources:
             requests:
               cpu: 1000m

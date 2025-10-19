@@ -49,7 +49,7 @@ $ kubectl describe node knative | grep sgx.intel.com
 - Check logs with: `sudo journalctl -u pccs.service -f`
 - Since we're using `minikube` the default address host's `pccs.service` listen's on won't be reachable from `minikube` pods even after using the `host.minikube.internal:8081` url. 
 - To enable `pccs.service` to accept requests from `minikube` pods, we need to make it listen on the `minikube` host’s IP address.
-- First, find the ip of `host.minikube.internal` by going into minikube node with `minikube ssh` and running: `ping host.minikube.internal`. Let's say the ip is `192.168.58.1`
+- First, find the ip of `host.minikube.internal` by going into minikube node with `minikube ssh` and running: `ping host.minikube.internal`. Let's say the ip is `192.168.58.1` (192.168.49.1)
 - Next, set this ip (`192.168.58.1`) instead of `127.0.0.1` in the `hosts` key of file: `/opt/intel/sgx-dcap-pccs/config/default.json`. Finally, restart the `pccs.service` with: `sudo systemctl status pccs`
 - Alternatives: 
     - [docker image of PCCS provided by edgeless](https://docs.edgeless.systems/ego/reference/attest#your-own-pccs)

@@ -70,7 +70,8 @@ FUNCTION_MODE='SINGLE'
 # 71FNC/BakPDBF2fXOQA7Ywvs
 # -----END PRIVATE KEY-----'
 
-ATTACH_SIGNATURE='false'
+ATTACH_SIGNATURE='true'
+SIGNATURE_PP='{"g1":"l/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7","g2":"k+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24"}'
 
 # pre-config secret is used to provide static keys for function invocation
 kubectl delete secret pre-config -n $ns --ignore-not-found=true
@@ -86,4 +87,5 @@ kubectl create secret generic pre-config -n $ns \
   --from-literal=client_pp="${CLIENT_PP}" \
   --from-literal=function_mode="${FUNCTION_MODE}" \
   --from-literal=attach_signature="${ATTACH_SIGNATURE}" \
+  --from-literal=signature_pp="${SIGNATURE_PP}" \
   --from-literal=rsa_sk="${RSA_SK}"

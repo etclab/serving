@@ -2,6 +2,9 @@
 
 minikube delete -p knative
 
-kn quickstart minikube
+minikube addons enable metrics-server
+
+kn quickstart minikube --kubernetes-version=v1.32.0
+
 
 minikube profile knative

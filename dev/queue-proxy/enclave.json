@@ -227,6 +227,10 @@
         "fromHost": true
     },
     {
+        "name": "SIGNATURE_PP",
+        "fromHost": true
+    },
+    {
         "name": "RSA_SK",
         "fromHost": true
     },

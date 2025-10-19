@@ -87,7 +87,7 @@ func getDefaultMessage() []byte {
 			log.Fatalf("failed to parse public key: %v", err.Error())
 		}
 
-		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName)
+		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName, []byte{})
 		if err != nil {
 			log.Fatalf("failed to get default message: %v", err.Error())
 		}
@@ -95,6 +95,24 @@ func getDefaultMessage() []byte {
 	}
 
 	return msgBytes
+}
+
+func getHeaders() http.Header {
+	headers := http.Header{
+		"Content-Type":   []string{"application/json"},
+		"Ce-Id":          []string{"1"},
+		"Ce-Specversion": []string{"1.0"},
+		"Ce-Type":        []string{"cloud-event-greeting"},
+		"Ce-Source":      []string{"cloud-event-source"},
+	}
+
+	attachSignature := os.Getenv("ATTACH_SIGNATURE")
+	if attachSignature == "true" {
+		log.Printf("ATTACH_SIGNATURE is true, adding a nonce to the header")
+		headers.Set("Ce-Nonce", fmt.Sprintf("%d", time.Now().Unix()))
+	}
+
+	return headers
 }
 
 // Map the above to our benchmark targets.
@@ -110,13 +128,7 @@ var targets = map[string]struct {
 			Method: http.MethodPost,
 			URL:    "http://appender-ego.default.svc.cluster.local",
 			Body:   getDefaultMessage(),
-			Header: http.Header{
-				"Content-Type":   []string{"application/json"},
-				"Ce-Id":          []string{"1"},
-				"Ce-Specversion": []string{"1.0"},
-				"Ce-Type":        []string{"cloud-event-greeting"},
-				"Ce-Source":      []string{"cloud-event-source"},
-			},
+			Header: getHeaders(),
 		},
 		// hitting a Knative Service
 		// going through BOTH the activator and queue-proxy falls in the +10ms range.
@@ -181,7 +193,7 @@ func main() {
 	// 		ExpectContinueTimeout: 1 * time.Second,
 	// 	},
 	// }
-	// attacker := vegeta.NewAttacker(vegeta.Timeout(30*time.Second), vegeta.Client(client))
+	// attacker := vegeta.NewAttacker(vegeta.Timeout(180*time.Second), vegeta.MaxWorkers(250), vegeta.Client(client))
 	attacker := vegeta.NewAttacker(vegeta.Timeout(180*time.Second), vegeta.MaxWorkers(250))
 
 	influxReporter, err := performance.NewInfluxReporter(map[string]string{"target": *target})
@@ -212,6 +224,7 @@ LOOP:
 		case res, ok := <-results:
 			if ok {
 				// log.Printf("Received body: %s", string(res.Body))
+				// log.Printf("Received headers: %+v", res.Headers)
 				metricResults.Add(res)
 			} else {
 				// If there are no more results, then we're done!

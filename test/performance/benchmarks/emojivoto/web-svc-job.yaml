@@ -47,7 +47,7 @@ spec:
       containers:
         - name: web-svc-runner
           image: ko://knative.dev/serving/test/performance/benchmarks/emojivoto
-          args: ["-target=broker-ingress", "--duration=15m"]
+          args: ["-target=broker-ingress", "--duration=5m"]
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:
@@ -100,6 +100,11 @@ spec:
                   name: pre-config 
                   key: rsa_sk 
                   optional: true
+            - name: ATTACH_SIGNATURE 
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: attach_signature  
           resources:
             requests:
               cpu: 1000m

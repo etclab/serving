@@ -89,7 +89,7 @@ func getDefaultMessage() []byte {
 			log.Fatalf("failed to parse public key: %v", err.Error())
 		}
 
-		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName)
+		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName, []byte{})
 		if err != nil {
 			log.Fatalf("failed to get default message: %v", err.Error())
 		}
@@ -116,7 +116,7 @@ func encryptWithLeaderKey(plainBytes []byte) []byte {
 			log.Fatalf("failed to parse public key: %v", err.Error())
 		}
 
-		encryptedBytes, err := mutil.PreEncrypt(pp, pk, plainBytes, targetName)
+		encryptedBytes, err := mutil.PreEncrypt(pp, pk, plainBytes, targetName, []byte{})
 		if err != nil {
 			log.Fatalf("failed to get default message: %v", err.Error())
 		}
@@ -263,7 +263,7 @@ func main() {
 	// 	},
 	// }
 	// attacker := vegeta.NewAttacker(vegeta.Timeout(30*time.Second), vegeta.Client(client))
-	attacker := vegeta.NewAttacker(vegeta.Timeout(30 * time.Second))
+	attacker := vegeta.NewAttacker(vegeta.Timeout(180*time.Second), vegeta.MaxWorkers(250))
 
 	// influxReporter, err := performance.NewInfluxReporter(map[string]string{"target": *target})
 	// if err != nil {

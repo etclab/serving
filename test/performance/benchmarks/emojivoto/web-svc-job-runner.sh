@@ -39,7 +39,7 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-run_job web-svc-job "${SCRIPT_DIR}/web-svc-job.yaml" 10
+run_job web-svc-job "${SCRIPT_DIR}/web-svc-job.yaml" 750
 
 # rates=(250 500 750 1000 1250 1500)
 # for rate in "${rates[@]}"; do

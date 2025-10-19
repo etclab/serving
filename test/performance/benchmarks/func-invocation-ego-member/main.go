@@ -87,7 +87,7 @@ func getDefaultMessage() []byte {
 			log.Fatalf("failed to parse public key: %v", err.Error())
 		}
 
-		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName)
+		encryptedBytes, err := mutil.PreEncrypt(pp, pk, msgBytes, targetName, []byte{})
 		if err != nil {
 			log.Fatalf("failed to get default message: %v", err.Error())
 		}

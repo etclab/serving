@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -68,12 +67,8 @@ import (
 	"knative.dev/serving/pkg/queue"
 	"knative.dev/serving/pkg/queue/readiness"
 
-	bls "github.com/cloudflare/circl/ecc/bls12381"
-	"github.com/etclab/ncircl/aggsig/bgls03"
 	"github.com/etclab/pre"
 	injection "knative.dev/pkg/injection"
-
-	"github.com/edgelesssys/ego/attestation"
 )
 
 const (
@@ -681,13 +676,13 @@ func (d *DebugTransport) decryptRSAMessage(encryptedBytes []byte) ([]byte, error
 	return plaintext, nil
 }
 
-func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, error) {
+func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, []byte, error) {
 	logDev := mutil.LogWithPrefix("dev - decryptSambaMessage")
 
 	var sambaMessage *samba.SambaMessage
 	if err := json.Unmarshal(encryptedBytes, &sambaMessage); err != nil {
 		logDev("Invalid message format: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	var err error
@@ -714,7 +709,7 @@ func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, err
 		sambaMessage, err = mutil.ReEncrypt(myPublicParams, reEncKey, sambaMessage)
 		if err != nil {
 			logDev("Error re-encrypting message: %v", err)
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -722,10 +717,16 @@ func (d *DebugTransport) decryptSambaMessage(encryptedBytes []byte) ([]byte, err
 	plaintext, err := mutil.Decrypt(myPublicParams, myKeyPair.SK, sambaMessage)
 	if err != nil {
 		logDev("Error decrypting message: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
-	return plaintext, nil
+	signature, err := mutil.DecryptSignature(myPublicParams, myKeyPair.SK, sambaMessage)
+	if err != nil {
+		logDev("Error decrypting message: %v", err)
+		return nil, nil, err
+	}
+
+	return plaintext, signature, nil
 }
 
 // decrypts the response for user-container
@@ -753,58 +754,11 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	nonce := req.Header.Get("Ce-Nonce")
 	if nonce == "" {
 		logDev("Request missing Ce-Nonce header, cannot add signature.")
-	} else {
-		// instanceId is unique instance id (or pod id) of the function
-		messageToSign := nonce + "|" + d.KeyRegistry.PodId
-		logDev("Message to sign: %s", messageToSign)
-
-		// if existing signature then parse it and update it
-		existingAggSignature := req.Header.Get("Ce-Aggsignature")
-		// records the function instance ids that have signed this message
-		funChain := req.Header.Get("Ce-Functionchain")
-		logDev("Existing signature: %s", existingAggSignature)
-		logDev("Existing function chain: %s", funChain)
-
-		// based on TestManySign() method in ncircle/aggsig/bgls03/bgls03_test.go
-		// https://github.com/etclab/ncircl/blob/7667a1b1a68bbbfaab501187acb5001ddc3a8754/aggsig/bgls03/bgls03_test.go#L36-L58
-		var aggSig *bgls03.Signature
-		if existingAggSignature == "" {
-			// first function in the chain
-			aggSig = bgls03.NewSignature()
-			bgls03.Sign(d.KeyRegistry.SigPp, d.KeyRegistry.SigSk, []byte(messageToSign), aggSig)
-		} else {
-			// if there's an existing signature, parse it and add to it
-			eSigBytes, err := hex.DecodeString(existingAggSignature)
-			if err != nil {
-				logDev("Error decoding existing signature from hex: %v", err)
-				return nil, err
-			}
-			g1 := new(bls.G1)
-			err = g1.SetBytes(eSigBytes)
-			if err != nil {
-				logDev("Error parsing existing signature bytes: %v", err)
-				return nil, err
-			}
-
-			aggSig = &bgls03.Signature{
-				Sig: g1,
-			}
-
-			bgls03.Sign(d.KeyRegistry.SigPp, d.KeyRegistry.SigSk, []byte(messageToSign), aggSig)
-		}
-
-		sigBytes := aggSig.Sig.BytesCompressed()
-		sigHex := hex.EncodeToString(sigBytes)
-
-		// attach updated signature to the request header
-		logDev("Attaching signature to request header: %s", sigHex)
-		if funChain == "" {
-			funChain = d.KeyRegistry.PodId
-		} else {
-			funChain = funChain + "|" + d.KeyRegistry.PodId
-		}
-		d.KeyRegistry.StoreAggSignatureAndChain(nonce, funChain, sigHex)
 	}
+
+	// records the function instance ids that have signed this message
+	funChain := req.Header.Get("Ce-Functionchain")
+	logDev("Existing function chain: %s", funChain)
 
 	encBody, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -814,6 +768,7 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logDev("Request Body (encrypted): %s", string(encBody))
 
 	var plaintext []byte
+	var signatureBytes []byte
 
 	functionMode := mutil.GetFunctionMode()
 
@@ -845,7 +800,7 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		} else {
 			// decrypt the ciphertext using proxy re-encryption
 			logDev("Decrypting message using samba re-encryption.")
-			plaintext, err = d.decryptSambaMessage(encBody)
+			plaintext, signatureBytes, err = d.decryptSambaMessage(encBody)
 			if err != nil {
 				logDev("Error decrypting message: %v", err)
 				return nil, err
@@ -872,7 +827,7 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 			logDev("decrypting message for service %s in chain %v", currentService, chainedServices)
 			// decrypt the ciphertext, get the plaintext
-			plaintext, err = d.decryptSambaMessage(encBody)
+			plaintext, signatureBytes, err = d.decryptSambaMessage(encBody)
 			if err != nil {
 				logDev("Error decrypting message: %v", err)
 				return nil, err
@@ -891,34 +846,23 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("X-Queue-Decrypted", "true")
 	req.Header.Set("Content-Length", strconv.Itoa(len(plaintext)))
 
+	sigHex := hex.EncodeToString(signatureBytes)
+	req.Header.Set("Ce-Aggsignature", sigHex)
+
+	// err = d.KeyRegistry.VerifySignature(signatureBytes, funChain, nonce)
+	// if err != nil {
+	// 	logDev("error verifying signature: %v", err)
+	// 	return nil, err
+	// }
+
+	if funChain == "" {
+		funChain = d.KeyRegistry.PodId
+	} else {
+		funChain = funChain + "|" + d.KeyRegistry.PodId
+	}
+	req.Header.Set("Ce-Functionchain", funChain)
+
 	return d.Transport.RoundTrip(req)
-}
-
-func verifyReport(report attestation.Report) error {
-	// You can either verify the UniqueID or the tuple (SignerID, ProductID, SecurityVersion, Debug).
-	// TODO: inject the actual signer id as env in enclave.json
-	signerid, err := hex.DecodeString("36de55e9a3365d9fc0890696a2bd230a9dffbc98e2bf47a029707f8e33e710c6")
-	if err != nil {
-		return errors.New("failed to decode signer ID")
-	}
-
-	// set to 1 in enclave.json
-	if report.SecurityVersion != 1 {
-		return errors.New("invalid security version")
-	}
-	// set to 1 in enclave.json
-	if binary.LittleEndian.Uint16(report.ProductID) != 1 {
-		return errors.New("invalid product")
-	}
-	// for now we just check if the length is equal
-	// if !bytes.Equal(report.SignerID, signer) {
-	if len(report.SignerID) != len(signerid) {
-		return errors.New("invalid signer")
-	}
-
-	// For production, you must also verify that report.Debug == false
-
-	return nil
 }
 
 func buildTransport(env config) http.RoundTripper {

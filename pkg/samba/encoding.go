@@ -178,6 +178,8 @@ type SambaMessage struct {
 	WrappedKey1   Ciphertext1Serialized `json:"wrapped_key1"` // Encrypted bls.Gt that derives to AES key
 	WrappedKey2   Ciphertext2Serialized `json:"wrapped_key2"` // Re-encrypted bls.Gt that derives to AES key
 	Ciphertext    []byte                `json:"ciphertext"`   // plaintext (just a string for now) encrypted under the AES key
+	// bgls signature over "nonce|pod_id"
+	SignatureCiphertext []byte `json:"signature"` // signature over the serialized SambaMessage
 }
 
 func (c *Ciphertext1Serialized) Serialize(ct1 *pre.Ciphertext1) error {

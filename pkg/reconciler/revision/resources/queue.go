@@ -570,6 +570,17 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 					},
 				},
 			}, {
+				Name: "SIGNATURE_PP",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "signature_pp",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
 				Name: "RSA_SK",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{

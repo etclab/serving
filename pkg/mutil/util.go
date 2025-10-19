@@ -8,15 +8,21 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
 	bls "github.com/cloudflare/circl/ecc/bls12381"
+	"github.com/edgelesssys/ego/attestation"
+	"github.com/etclab/ncircl/aggsig/bgls03"
 	"github.com/etclab/pre"
+	"knative.dev/serving/pkg/bgls"
 	"knative.dev/serving/pkg/samba"
 )
 
@@ -91,6 +97,37 @@ func AESGCMDecrypt(key, ciphertext []byte) ([]byte, error) {
 	return aesgcm.Open(nil, nonce, ciphertext, nil)
 }
 
+func DecryptSignature(pp *pre.PublicParams, sk any, m *samba.SambaMessage) ([]byte, error) {
+	skPRE, ok := sk.(*pre.SecretKey)
+	if !ok {
+		return nil, fmt.Errorf("pk is not a proxy re-encryption SecretKey")
+	}
+
+	var gt *bls.Gt
+
+	if m.IsReEncrypted {
+		ct2, err := m.WrappedKey2.DeSerialize()
+		if err != nil {
+			return nil, err
+		}
+		gt = pre.Decrypt2(pp, ct2, skPRE)
+	} else {
+		ct1, err := m.WrappedKey1.DeSerialize()
+		if err != nil {
+			return nil, err
+		}
+		gt = pre.Decrypt1(pp, ct1, skPRE)
+	}
+
+	key := pre.KdfGtToAes256(gt)
+	signature, err := AESGCMDecrypt(key, m.SignatureCiphertext)
+	if err != nil {
+		return nil, err
+	}
+
+	return signature, nil
+}
+
 func Decrypt(pp *pre.PublicParams, sk any, m *samba.SambaMessage) ([]byte, error) {
 	skPRE, ok := sk.(*pre.SecretKey)
 	if !ok {
@@ -137,17 +174,18 @@ func ReEncrypt(pp *pre.PublicParams, rk *pre.ReEncryptionKey, m *samba.SambaMess
 	}
 
 	return &samba.SambaMessage{
-		Target:        m.Target,
-		IsReEncrypted: true,
-		WrappedKey2:   wk2,
-		Ciphertext:    m.Ciphertext,
+		Target:              m.Target,
+		IsReEncrypted:       true,
+		WrappedKey2:         wk2,
+		Ciphertext:          m.Ciphertext,
+		SignatureCiphertext: m.SignatureCiphertext,
 	}, nil
 }
 
 // plainBytes is encrypted with (pp & pk - public params & public key)
 // of the target service
 func PreEncrypt(pp *pre.PublicParams, pk *pre.PublicKey, plainBytes []byte,
-	target string) (encryptedBytes []byte, err error) {
+	target string, signatureBytes []byte) (encryptedBytes []byte, err error) {
 	m := pre.RandomGt()
 	wrappedKey := pre.Encrypt(pp, m, pk)
 	key := pre.KdfGtToAes256(m)
@@ -155,6 +193,11 @@ func PreEncrypt(pp *pre.PublicParams, pk *pre.PublicKey, plainBytes []byte,
 	cipherText, err := AESGCMEncrypt(key, plainBytes)
 	if err != nil {
 		return nil, fmt.Errorf("AESGCMEncrypt failed: %v", err)
+	}
+
+	signatureCiphertext, err := AESGCMEncrypt(key, signatureBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to AESGCMEncrypt signature: %v", err)
 	}
 
 	var wrappedKeySerialized samba.Ciphertext1Serialized
@@ -168,9 +211,10 @@ func PreEncrypt(pp *pre.PublicParams, pk *pre.PublicKey, plainBytes []byte,
 		Target: target,
 		// always false because the message is always encrypted for leader's public key
 		// the member's proxy needs to re-encrypt it for the member's public key
-		IsReEncrypted: false,
-		WrappedKey1:   wrappedKeySerialized,
-		Ciphertext:    cipherText,
+		IsReEncrypted:       false,
+		WrappedKey1:         wrappedKeySerialized,
+		Ciphertext:          cipherText,
+		SignatureCiphertext: signatureCiphertext,
 	}
 
 	encryptedBytes, err = json.Marshal(sambaMessage)
@@ -277,4 +321,48 @@ func RSAHybridEncrypt(pk *rsa.PublicKey, msg []byte) ([]byte, error) {
 	ciphertextWithKey := append(encKey, ciphertext...)
 
 	return ciphertextWithKey, nil
+}
+
+func VerifyReport(report attestation.Report) error {
+	// You can either verify the UniqueID or the tuple (SignerID, ProductID, SecurityVersion, Debug).
+	// TODO: inject the actual signer id as env in enclave.json
+	signerid, err := hex.DecodeString("36de55e9a3365d9fc0890696a2bd230a9dffbc98e2bf47a029707f8e33e710c6")
+	if err != nil {
+		return errors.New("failed to decode signer ID")
+	}
+
+	// set to 1 in enclave.json
+	if report.SecurityVersion != 1 {
+		return errors.New("invalid security version")
+	}
+	// set to 1 in enclave.json
+	if binary.LittleEndian.Uint16(report.ProductID) != 1 {
+		return errors.New("invalid product")
+	}
+	// for now we just check if the length is equal
+	// if !bytes.Equal(report.SignerID, signer) {
+	if len(report.SignerID) != len(signerid) {
+		return errors.New("invalid signer")
+	}
+
+	// For production, you must also verify that report.Debug == false
+
+	return nil
+}
+
+func ParseSignaturePublicParams() (*bgls03.PublicParams, error) {
+	ppsFromEnv := os.Getenv("SIGNATURE_PP")
+
+	pps := new(bgls.PublicParamsSerialized)
+	err := json.NewDecoder(bytes.NewReader([]byte(ppsFromEnv))).Decode(pps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode bgls public params: %v", err)
+	}
+
+	pp, err := pps.DeSerialize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize bgls public params: %v", err)
+	}
+
+	return pp, nil
 }
