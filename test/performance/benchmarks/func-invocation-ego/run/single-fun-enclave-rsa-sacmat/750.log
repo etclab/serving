@@ -1,0 +1,15 @@
+2025/10/20 03:26:54 Function mode: SINGLE
+2025/10/20 03:26:54 RSA_SK is set, using it for encryption
+{"level":"info","ts":1760930814.1928077,"logger":"fallback","caller":"injection/injection.go:63","msg":"Starting informers..."}
+2025/10/20 03:26:54 Starting func invocation probe for target: appender-ego
+2025/10/20 03:26:54 Using rate: 750
+Requests      [total, rate, throughput]         224999, 750.00, 749.96
+Duration      [total, attack, wait]             5m0s, 5m0s, 17.295ms
+Latencies     [min, mean, 50, 90, 95, 99, max]  5.745ms, 15.543ms, 15.117ms, 20.255ms, 22.059ms, 25.739ms, 1.034s
+2025/10/20 03:32:54 Shutting down InfluxReporter
+Bytes In      [total, mean]                     98549562, 438.00
+Bytes Out     [total, mean]                     95174577, 423.00
+Success       [ratio]                           100.00%
+Status Codes  [code:count]                      200:224999  
+Error Set:
+2025/10/20 03:32:54 SLA 1 failed. P95 latency is not in 100000000-110000000ms time range: 22.058786ms

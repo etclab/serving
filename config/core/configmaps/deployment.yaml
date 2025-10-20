@@ -27,8 +27,8 @@ data:
   # This is the Go import path for the binary that is containerized
   # and substituted here.
   # queue-sidecar-image: ko://knative.dev/serving/cmd/queue
-  # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:latest
   # use a fixed tag instead of `latest` to avoid pulling the latest image
+  # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:main
   queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:latest
   # queue-sidecar-image: atosh502/queue-39be6f1d08a095bd076a71d288d295b6:og-oct
   # this image is built with debug: false in enclave.json

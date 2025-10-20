@@ -40,8 +40,7 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-# rates=(250 500 750 1000 1250 1500)
-rates=(1250)
+rates=(250 500 750 1000 1250 1500)
 for rate in "${rates[@]}"; do
   echo "Running func-invocation-ego-member-job.yaml with rate: $rate"
 

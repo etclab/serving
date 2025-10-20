@@ -23,3 +23,8 @@
 - How to parse the data?
     - Run: `python3 parse.py run/single-fun-enclave-samba/ samba.data "single-function-samba"`
     - (where `samba.data` is the output file to store the data in; `"single-function-samba" is the label describing the data` and `run/single-fun-enclave-samba/` is the folder storing log files)
+
+- For `EFunction` benchmark use
+    - `docker.io/atosh502/appender-ego:latest` as user-container image in `func-invocation-ego-setup.yaml`
+    - `docker.io/atosh502/queue-proxy-ego:main` as queue-proxy image in `deployment.yaml` (build it from `main` branch using: `TAG=main ./build.sh` inside `dev/queue-proxy` folder)
+    - `FUNCTION_MODE` is empty

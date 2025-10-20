@@ -4,6 +4,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 
+"${SCRIPT_DIR}/../../../../eval/s/test-secret.sh"
+
 timestamp=$(date +%F_%T)
 
 ns=default
@@ -37,8 +39,7 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-# rates=(250 500 750 1000 1250 1500)
-rates=(100)
+rates=(250 500 750 1000 1250 1500)
 for rate in "${rates[@]}"; do
   echo "Running func-invocation-appender.yaml with rate: $rate"
 

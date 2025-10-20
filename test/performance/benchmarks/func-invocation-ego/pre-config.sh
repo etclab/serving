@@ -70,7 +70,7 @@ FUNCTION_MODE='SINGLE'
 # 71FNC/BakPDBF2fXOQA7Ywvs
 # -----END PRIVATE KEY-----'
 
-ATTACH_SIGNATURE='true'
+ATTACH_SIGNATURE='false'
 SIGNATURE_PP='{"g1":"l/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7","g2":"k+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24"}'
 
 # pre-config secret is used to provide static keys for function invocation

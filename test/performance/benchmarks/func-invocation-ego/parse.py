@@ -84,12 +84,12 @@ def main():
             
     with open(args.out_file, "w") as f:
         f.write(f"# func-invocation time (ms)\n")
-        f.write(f"#{f'{args.label}':<25} {'p50':<25} {'p90':<25} {'min':<25} {'max':<25} {'mean':<25}\n")
+        f.write(f"#{f'{args.label}':<25} {'p50':<25} {'p90':<25} {'p95':<25} {'p99':<25} {'min':<25} {'max':<25} {'mean':<25}\n")
         
         rates = sorted([int(rate) for rate in list(data_ms.keys())])
         for rate in rates:
             row = data_ms[f'{rate}']
-            f.write(f"{f'{rate}':<25} {row['50']:<25} {row['90']:<25} {row['min']:<25} {row['max']:<25} {row['mean']:<25}\n")
+            f.write(f"{f'{rate}':<25} {row['50']:<25} {row['90']:<25} {row['95']:<25} {row['99']:<25} {row['min']:<25} {row['max']:<25} {row['mean']:<25}\n")
 
 if __name__ == "__main__":
     main()
