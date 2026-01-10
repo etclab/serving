@@ -26,3 +26,9 @@
     - Uses: `sample-function-ego-member.yaml` to deploy two replicas of a function
     - Measure the time taken for `member` replica to be ready instead of the `leader` replica.
     - Run benchmark measuring the deployment time of `sample-function-ego-member.yaml` using: `REPEAT=50 ./run-func-deploy-ego-member.sh`
+
+- Pods used and their names
+    - Knative uses `queue-39be6f1d08a095bd076a71d288d295b6:og` and `appender:bench`
+    - EFunction uses `queue-proxy-ego:bench` and `appender-ego:bench`
+    - Leader EFunction uses `queue-proxy-ego-pre:bench` and `appender-ego:bench`
+    - Member EFunction uses `queue-proxy-ego-pre:bench` and `appender-ego:bench`
