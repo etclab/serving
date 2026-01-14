@@ -11,14 +11,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 DEPLOYMENT_YAML="$REPO_ROOT/config/core/configmaps/deployment.yaml"
 REPEAT=${REPEAT:-50}
 
+# Set USE_AKS=true when running on AKS (skips local QCNL volume mount)
+USE_AKS=${USE_AKS:-false}
+
 # Create a single timestamp for this benchmark run
 BENCHMARK_TIMESTAMP=$(date +%F_%T)
 export BENCHMARK_TIMESTAMP
 echo "Benchmark run timestamp: $BENCHMARK_TIMESTAMP"
 
 # Queue sidecar images for each variant type
-QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
-QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
+# Use AKS-specific images (no QCNL volume mount) when USE_AKS=true
+if [[ "$USE_AKS" == "true" ]]; then
+    QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench-aks"
+    QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench-aks"
+else
+    QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
+    QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
+fi
 
 # Save the original queue-sidecar-image value
 get_queue_sidecar_image() {
@@ -65,7 +74,7 @@ run_variant() {
 
     # Run the benchmark
     cd "$SCRIPT_DIR"
-    VARIANT="$variant" REPEAT="$REPEAT" ./run-func.sh
+    VARIANT="$variant" REPEAT="$REPEAT" USE_AKS="$USE_AKS" ./run-func.sh
 
     echo "Completed benchmark for variant: $variant"
 }
@@ -75,10 +84,10 @@ run_variant() {
 # run_variant "knative" ""
 
 # # efunction: uses queue-proxy-ego
-run_variant "efunction" "$QUEUE_IMAGE_EGO"
+# run_variant "efunction" "$QUEUE_IMAGE_EGO"
 
 # # leader-efunction: uses queue-proxy-ego-pre
-# run_variant "leader-efunction" "$QUEUE_IMAGE_EGO_PRE"
+run_variant "leader-efunction" "$QUEUE_IMAGE_EGO_PRE"
 
 # # # member-efunction: uses queue-proxy-ego-pre (same as leader)
 # run_variant "member-efunction" "$QUEUE_IMAGE_EGO_PRE"

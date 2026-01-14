@@ -1,0 +1,23 @@
+# Generated from run-func.sh for variant: leader-efunction
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: appender-ego-leader
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      containers:
+      - image: docker.io/atosh502/appender-ego:bench
+        readinessProbe:
+          periodSeconds: 1
+        resources:
+          limits:
+            sgx.intel.com/epc: "512Ki"
+            sgx.intel.com/enclave: 1
+            sgx.intel.com/provision: 1
+      containerConcurrency: 0

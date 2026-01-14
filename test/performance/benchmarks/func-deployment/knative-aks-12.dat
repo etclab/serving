@@ -1,0 +1,4 @@
+# pod deployment time (seconds)
+# timestamp: 2026-01-13_21:52:17
+# variant                 min        max        mean            median     std            
+knative                   1          1          1.00            1.0        0.00           

@@ -1,0 +1,18 @@
+# Generated from run-func.sh for variant: knative
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: appender
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      containers:
+      - image: docker.io/atosh502/appender:bench
+        readinessProbe:
+          periodSeconds: 1
+      containerConcurrency: 0

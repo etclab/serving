@@ -7,6 +7,9 @@ source "${SCRIPT_DIR}/utils.sh"
 # Supported variants: knative, efunction, leader-efunction, member-efunction
 VARIANT=${VARIANT:-efunction}
 
+# Set USE_AKS=true when running on AKS (skips local QCNL volume mount)
+USE_AKS=${USE_AKS:-false}
+
 # Defaults (override in case block as needed)
 MIN_SCALE="1"
 MAX_SCALE="1"
@@ -61,10 +64,19 @@ spec:
         autoscaling.knative.dev/maxScale: "$MAX_SCALE"
         autoscaling.knative.dev/targetBurstCapacity: "-1"
     spec:
+EOF
+
+# Add QCNL volume only for non-AKS environments (local minikube)
+if [[ "$USE_AKS" != "true" ]]; then
+cat >> "$FUNCTION_YAML" <<EOF
       volumes:
       - name: sgx-default-qcnl-local-volume
         configMap:
           name: sgx-default-qcnl-local
+EOF
+fi
+
+cat >> "$FUNCTION_YAML" <<EOF
       containers:
       - image: $CONTAINER_IMAGE
         readinessProbe:
@@ -82,12 +94,18 @@ cat >> "$FUNCTION_YAML" <<EOF
 EOF
 fi
 
-# Add the rest of the container spec
+# Add QCNL volumeMount only for non-AKS environments (local minikube)
+if [[ "$USE_AKS" != "true" ]]; then
 cat >> "$FUNCTION_YAML" <<EOF
         volumeMounts:
           - name: sgx-default-qcnl-local-volume
             mountPath: /etc/sgx_default_qcnl.conf
             subPath: sgx_default_qcnl.conf
+EOF
+fi
+
+# Add the rest of the container spec
+cat >> "$FUNCTION_YAML" <<EOF
       containerConcurrency: 0
 EOF
 
