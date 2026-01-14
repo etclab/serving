@@ -224,6 +224,21 @@
     },
     {
         "name": "ATTACH_SIGNATURE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "VERIFY_SIGNATURE",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "DISABLE_LOGGING",
+        "fromHost": true,
+        "value": ""
+    },
+    {
+        "name": "DECOY_VAR",
         "fromHost": true
     },
     {
@@ -232,7 +247,8 @@
     },
     {
         "name": "RSA_SK",
-        "fromHost": true
+        "fromHost": true,
+        "value": ""    
     },
     {
         "name": "SERVICE_NAMES",
