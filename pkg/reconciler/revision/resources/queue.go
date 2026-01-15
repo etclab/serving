@@ -98,7 +98,7 @@ var (
 	}
 )
 
-func createQueueResources(cfg *deployment.Config, annotations map[string]string, userContainer *corev1.Container, useDefaults bool) corev1.ResourceRequirements {
+func createQueueResources(cfg *deployment.Config, annotations map[string]string, userContainer *corev1.Container, useDefaults bool, useSGXResources bool) corev1.ResourceRequirements {
 	resourceRequests := corev1.ResourceList{}
 	resourceLimits := corev1.ResourceList{}
 
@@ -181,15 +181,17 @@ func createQueueResources(cfg *deployment.Config, annotations map[string]string,
 		resourceLimits[corev1.ResourceEphemeralStorage] = limitEphemeralStorage
 	}
 
-	// request sgx device for queue-proxy
+	// request sgx device for queue-proxy (only for EGO-enabled queue-proxy)
 	// resources:
 	//   limits:
 	// 	    sgx.intel.com/epc: "512Ki"
 	// 	    sgx.intel.com/enclave: 1
 	// 	    sgx.intel.com/provision: 1
-	resourceLimits[corev1.ResourceName("sgx.intel.com/epc")] = resource.MustParse("512Ki")
-	resourceLimits[corev1.ResourceName("sgx.intel.com/enclave")] = resource.MustParse("1")
-	resourceLimits[corev1.ResourceName("sgx.intel.com/provision")] = resource.MustParse("1")
+	if useSGXResources {
+		resourceLimits[corev1.ResourceName("sgx.intel.com/epc")] = resource.MustParse("512Ki")
+		resourceLimits[corev1.ResourceName("sgx.intel.com/enclave")] = resource.MustParse("1")
+		resourceLimits[corev1.ResourceName("sgx.intel.com/provision")] = resource.MustParse("1")
+	}
 
 	resources := corev1.ResourceRequirements{
 		Requests: resourceRequests,
@@ -357,19 +359,23 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	useQPResourceDefaults := cfg.Features.QueueProxyResourceDefaults == apicfg.Enabled
 
 	// override the queue sidecar image for certain pods
+	// services in DefaultQueueSidecarServices use the OG (non-EGO) queue-proxy
+	// and don't need SGX resources
 	queueSidecarImage := cfg.Deployment.QueueSidecarImage
 	ogSidecarImage := cfg.Deployment.OgQueueSidecarImage
+	useSGXResources := true // default: use SGX resources for EGO queue-proxy
 
 	if serviceName, ok := rev.Labels["serving.knative.dev/service"]; ok {
 		if cfg.Deployment.DefaultQueueSidecarServices.Has(serviceName) {
 			queueSidecarImage = ogSidecarImage
+			useSGXResources = false // OG queue-proxy doesn't need SGX
 		}
 	}
 
 	c := &corev1.Container{
 		Name:            QueueContainerName,
 		Image:           queueSidecarImage,
-		Resources:       createQueueResources(cfg.Deployment, rev.GetAnnotations(), userContainer, useQPResourceDefaults),
+		Resources:       createQueueResources(cfg.Deployment, rev.GetAnnotations(), userContainer, useQPResourceDefaults, useSGXResources),
 		Ports:           ports,
 		StartupProbe:    nil,
 		ReadinessProbe:  queueProxyReadinessProbe,
@@ -632,8 +638,8 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	if c.VolumeMounts == nil {
 		c.VolumeMounts = []corev1.VolumeMount{}
 	}
-	// NOTE: this isn't needed if we're running on Azure AKS with Intel SGX
-	c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
+	// NOTE: comment this line when building queue-proxy for Azure AKS (use TAG=bench-aks)
+	// c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
 
 	return c, nil
 }
