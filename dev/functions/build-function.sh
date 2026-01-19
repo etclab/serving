@@ -24,4 +24,11 @@ cp -r $FUNCTION_DIR/* $SCAFFOLD_DIR/f/
 cd $SCAFFOLD_DIR
 DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=$PRIVATE_KEY \
     --target deploy -t "atosh502/${DOCKER_IMG_NAME}:${TAG}" --push .
+
+docker rmi "atosh502/${DOCKER_IMG_NAME}:${TAG}" --force || true
+docker pull "atosh502/${DOCKER_IMG_NAME}:${TAG}"
+
+minikube image unload "atosh502/${DOCKER_IMG_NAME}:${TAG}" || true
+minikube image load "atosh502/${DOCKER_IMG_NAME}:${TAG}"
+
 cd -

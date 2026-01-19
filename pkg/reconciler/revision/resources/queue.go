@@ -576,6 +576,28 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 					},
 				},
 			}, {
+				Name: "DISABLE_LOGGING",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "disable_logging",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
+				Name: "VERIFY_SIGNATURE",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "verify_signature",
+						Optional: ptr.Bool(true),
+					},
+				},
+			}, {
 				Name: "SIGNATURE_PP",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
@@ -638,8 +660,10 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	if c.VolumeMounts == nil {
 		c.VolumeMounts = []corev1.VolumeMount{}
 	}
-	// NOTE: comment this line when building queue-proxy for Azure AKS (use TAG=bench-aks)
-	// c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
+	// Only add SGX QCNL volume mount for EGO queue-proxy (not for OG queue-proxy)
+	if useSGXResources {
+		c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
+	}
 
 	return c, nil
 }

@@ -161,6 +161,8 @@ type Env struct {
 	FunctionMode string `split_words:"true"` // optional
 
 	AttachSignature bool `split_words:"true"` // optional
+	VerifySignature bool `split_words:"true"` // optional
+	DisableLogging  bool `split_words:"true"` // optional
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -410,16 +412,14 @@ func printFilesUnderProc() {
 	logDev("=== End Debug ===")
 }
 
-func startResourceMonitoring() {
-	logDev := mutil.LogWithPrefix("dev - startResourceMonitoring")
-
+func startResourceMonitoring(logger *zap.SugaredLogger) {
 	ticker := time.NewTicker(10 * time.Second)
 	go func() {
 		for range ticker.C {
 			var m runtime.MemStats
 			runtime.ReadMemStats(&m)
 
-			logDev("Resource Stats: NumGoroutine=%d, Alloc=%dMB, Sys=%dMB, NumGC=%d",
+			logger.Infof("Resource Stats: NumGoroutine=%d, Alloc=%dMB, Sys=%dMB, NumGC=%d",
 				runtime.NumGoroutine(),
 				m.Alloc/1024/1024,
 				m.Sys/1024/1024,
@@ -449,6 +449,8 @@ func Main(opts ...Option) error {
 	// Setup the Logger.
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
 	defer flush(logger)
+
+	// startResourceMonitoring(logger)
 
 	logDev := mutil.LogWithPrefix("dev - Main")
 	logDev("d.Env = %+v", d.Env)
@@ -849,11 +851,17 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	sigHex := hex.EncodeToString(signatureBytes)
 	req.Header.Set("Ce-Aggsignature", sigHex)
 
-	// err = d.KeyRegistry.VerifySignature(signatureBytes, funChain, nonce)
-	// if err != nil {
-	// 	logDev("error verifying signature: %v", err)
-	// 	return nil, err
-	// }
+	if os.Getenv("VERIFY_SIGNATURE") == "true" {
+		logDev("Verifying signature as VERIFY_SIGNATURE is true.")
+		// this is where we verify the signature
+		err = d.KeyRegistry.VerifySignature(signatureBytes, funChain, nonce)
+		if err != nil {
+			logDev("error verifying signature: %v", err)
+			return nil, err
+		}
+	} else {
+		logDev("Skipping signature verification as VERIFY_SIGNATURE is %v.", os.Getenv("VERIFY_SIGNATURE"))
+	}
 
 	if funChain == "" {
 		funChain = d.KeyRegistry.PodId

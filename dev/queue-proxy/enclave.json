@@ -238,10 +238,6 @@
         "value": ""
     },
     {
-        "name": "DECOY_VAR",
-        "fromHost": true
-    },
-    {
         "name": "SIGNATURE_PP",
         "fromHost": true
     },

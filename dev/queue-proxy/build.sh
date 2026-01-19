@@ -50,4 +50,10 @@ DOCKER_BUILDKIT=1 docker build \
     -f $DOCKER_FILE \
     ${PROJECT_ROOT}
 
+docker rmi "${IMAGE_NAME}:${TAG}" --force || true
+docker pull "${IMAGE_NAME}:${TAG}"
+
+minikube image unload "${IMAGE_NAME}:${TAG}" || true
+minikube image load "${IMAGE_NAME}:${TAG}"
+
 cd - 

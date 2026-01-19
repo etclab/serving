@@ -1,5 +1,8 @@
 specVersion: 0.36.0
 name: display-fun
 runtime: go
+image: atosh502/display-fun:stock
 created: 2025-07-11T16:33:39.177350863-04:00
 invoke: cloudevent
+build:
+  builder: pack

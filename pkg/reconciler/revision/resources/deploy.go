@@ -192,7 +192,8 @@ func makePodSpec(rev *v1.Revision, cfg *config.Config) (*corev1.PodSpec, error) 
 
 	var extraVolumes []corev1.Volume
 
-	// extraVolumes = append(extraVolumes, sgxDefaultQcnlVolume)
+	// Note: SGX QCNL volume is defined in service YAMLs for user containers.
+	// The queue-proxy mounts this volume conditionally (see queue.go).
 
 	podInfoFeature, podInfoExists := rev.Annotations[apiconfig.QueueProxyPodInfoFeatureKey]
 

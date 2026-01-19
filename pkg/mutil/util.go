@@ -40,7 +40,7 @@ func LogWithPrefix(prefix string) func(format string, v ...interface{}) {
 }
 
 type PreKeys interface {
-	pre.PublicKey | pre.PublicParams | pre.ReEncryptionKey | pre.KeyPair
+	pre.PublicKey | pre.PublicParams | pre.ReEncryptionKey | pre.KeyPair | bgls03.PublicKey | bgls03.PublicParams
 }
 
 func GSafeWriteToMap[K comparable, V PreKeys](key K, value *V, gMap *map[K]*V, lock *sync.RWMutex) *V {

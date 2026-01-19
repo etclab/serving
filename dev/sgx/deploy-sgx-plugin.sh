@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# wait for cert-manager CRDs to be ready (installed by dev/setup.sh)
+echo "Waiting for cert-manager CRDs to be ready..."
+kubectl wait --for=condition=Established crd/certificates.cert-manager.io --timeout=60s
+kubectl wait --for=condition=Established crd/issuers.cert-manager.io --timeout=60s
+
 # sets up sgx device plugin and related components on minikube
 
 # why only v0.27.1? works
