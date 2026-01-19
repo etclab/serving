@@ -1,0 +1,155 @@
+# Both strategy: Combined leader + member replicas with SGX
+# Each function has 2 replicas (1 leader + 1 member) for fault tolerance
+# Uses min-scale: 2 to ensure both leader and member are always running
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: validate-fun
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
+      containers:
+        - image: atosh502/validate-fun:bench
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
+          volumeMounts:
+            - name: sgx-default-qcnl-local-volume
+              mountPath: /etc/sgx_default_qcnl.conf
+              subPath: sgx_default_qcnl.conf
+      containerConcurrency: 100
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: vote-fun
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
+      containers:
+        - image: atosh502/vote-fun:bench
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
+          volumeMounts:
+            - name: sgx-default-qcnl-local-volume
+              mountPath: /etc/sgx_default_qcnl.conf
+              subPath: sgx_default_qcnl.conf
+      containerConcurrency: 100
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: count-vote-fun
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
+      containers:
+        - image: atosh502/count-vote-fun:bench
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
+          volumeMounts:
+            - name: sgx-default-qcnl-local-volume
+              mountPath: /etc/sgx_default_qcnl.conf
+              subPath: sgx_default_qcnl.conf
+      containerConcurrency: 100
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: display-fun
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "2"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      volumes:
+      - name: sgx-default-qcnl-local-volume
+        configMap:
+          name: sgx-default-qcnl-local
+      containers:
+        - image: atosh502/display-fun:bench
+          env:
+          - name: TYPE
+            value: "samples.http.mod3"
+          resources:
+            limits:
+              sgx.intel.com/epc: "512Ki"
+              sgx.intel.com/enclave: 1
+              sgx.intel.com/provision: 1
+          volumeMounts:
+            - name: sgx-default-qcnl-local-volume
+              mountPath: /etc/sgx_default_qcnl.conf
+              subPath: sgx_default_qcnl.conf
+      containerConcurrency: 100
+---
+# Sequence for both strategy
+apiVersion: flows.knative.dev/v1
+kind: Sequence
+metadata:
+  name: sequence
+  namespace: default
+spec:
+  channelTemplate:
+    apiVersion: messaging.knative.dev/v1
+    kind: InMemoryChannel
+  steps:
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: validate-fun
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: vote-fun
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: count-vote-fun
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: display-fun
+  reply:
+    ref:
+      kind: Broker
+      apiVersion: eventing.knative.dev/v1
+      name: broker

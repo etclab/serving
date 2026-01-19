@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: func-chain-job
+  namespace: default
+spec:
+  parallelism: 1
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      containers:
+        - name: func-chain-benchmark
+          image: ko://knative.dev/serving/test/performance/benchmarks/func-chain
+          args:
+            - "-target=${TARGET}"
+            - "-duration=${DURATION}"
+          env:
+            - name: RATE
+              value: "${RATE}"
+            - name: STRATEGY
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: strategy
+                  optional: true
+            - name: RSA_SK
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: rsa_sk
+                  optional: true
+            - name: FUNCTION_MODE
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: function_mode
+                  optional: true
+            - name: LEADER_PP
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: leader_pp
+                  optional: true
+            - name: LEADER_PK
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: leader_pk
+                  optional: true
+            - name: ATTACH_SIGNATURE
+              valueFrom:
+                secretKeyRef:
+                  name: pre-config
+                  key: attach_signature
+                  optional: true
+            - name: SYSTEM_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: performance-test-config
+                  key: systemnamespace
+            - name: JOB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: performance-test-config
+                  key: jobname
+            - name: BUILD_ID
+              valueFrom:
+                secretKeyRef:
+                  name: performance-test-config
+                  key: buildid
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL

@@ -1,0 +1,8 @@
+# Disable scale-to-zero for consistent benchmark measurements
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-autoscaler
+  namespace: knative-serving
+data:
+  enable-scale-to-zero: "false"

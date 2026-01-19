@@ -1,0 +1,25 @@
+# Event display service and trigger for viewing chain output
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: sequence-display
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/knative-releases/knative.dev/eventing/cmd/event_display:v1.20.0
+---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: display-trigger
+spec:
+  broker: broker
+  filter:
+    attributes:
+      type: samples.http.mod3
+  subscriber:
+    ref:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      name: sequence-display

@@ -1,0 +1,5 @@
+# Knative Eventing Broker for routing events between functions
+apiVersion: eventing.knative.dev/v1
+kind: Broker
+metadata:
+  name: broker

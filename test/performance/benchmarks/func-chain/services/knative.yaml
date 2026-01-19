@@ -1,0 +1,102 @@
+# Knative strategy: Vanilla Knative services without SGX or encryption
+# Uses :stock tagged images (non-enclave binaries)
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: validate-fun-stock
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      containers:
+        - image: atosh502/validate-fun:stock
+      containerConcurrency: 100
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: vote-fun-stock
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      containers:
+        - image: atosh502/vote-fun:stock
+      containerConcurrency: 100
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: count-vote-fun-stock
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      containers:
+        - image: atosh502/count-vote-fun:stock
+      containerConcurrency: 100
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: display-fun-stock
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/targetBurstCapacity: "-1"
+    spec:
+      containers:
+        - image: atosh502/display-fun:stock
+          env:
+          - name: TYPE
+            value: "samples.http.mod3"
+      containerConcurrency: 100
+---
+# Sequence for knative strategy
+apiVersion: flows.knative.dev/v1
+kind: Sequence
+metadata:
+  name: sequence
+  namespace: default
+spec:
+  channelTemplate:
+    apiVersion: messaging.knative.dev/v1
+    kind: InMemoryChannel
+  steps:
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: validate-fun-stock
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: vote-fun-stock
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: count-vote-fun-stock
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: display-fun-stock
+  reply:
+    ref:
+      kind: Broker
+      apiVersion: eventing.knative.dev/v1
+      name: broker

@@ -1,0 +1,5 @@
+# Benchmark run artifacts - ignore all files in run/
+run/**/*
+# But include directories (so git traverses them) and .data statistics files
+!run/**/
+!run/**/*.data
