@@ -31,6 +31,10 @@ const NonceSize = 12
 
 func LogWithPrefix(prefix string) func(format string, v ...interface{}) {
 	return func(format string, v ...interface{}) {
+		isLoggingDisabled := os.Getenv("DISABLE_LOGGING") == "true"
+		if isLoggingDisabled {
+			return
+		}
 		log.Printf("["+prefix+"] "+format, v...)
 	}
 }
