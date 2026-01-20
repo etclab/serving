@@ -10,6 +10,7 @@
 ### Create ego-enlightened `queue-proxy` image for Azure AKS
 - Build: `TAG=bench-aks ./build.sh`
 - Image: `atosh502/queue-proxy-ego:bench-aks`
+- Command: `TAG=bench-aks IMAGE_NAME=atosh502/queue-proxy-ego-pre ./build.sh`
 - The build script automatically comments out the QCNL volume mount line when TAG contains "aks"
 
 ### Create a stock `queue-proxy` image (from main branch)

@@ -44,6 +44,10 @@ const (
 
 	OgQueueSidecarImage = "og-queue-sidecar-image"
 
+	// EnableQcnlVolumeMountKey is the config map key to enable/disable the SGX QCNL volume mount.
+	// Set to "false" for AKS deployments where QCNL config is not needed.
+	EnableQcnlVolumeMountKey = "enable-qcnl-volume-mount"
+
 	// DeprecatedQueueSidecarImageKey is the config map key for queue sidecar image.
 	DeprecatedQueueSidecarImageKey = "queueSidecarImage"
 
@@ -118,6 +122,7 @@ func defaultConfig() *Config {
 		RegistriesSkippingTagResolving: sets.New("kind.local", "ko.local", "dev.local"),
 		QueueSidecarCPURequest:         &QueueSidecarCPURequestDefault,
 		DefaultAffinityType:            defaultAffinityTypeValue,
+		EnableQcnlVolumeMount:          true, // default: enable QCNL volume mount for local/minikube
 	}
 	// The following code is needed for ConfigMap testing.
 	// defaultConfig must match the example in deployment.yaml which includes: `queue-sidecar-token-audiences: ""`
@@ -191,6 +196,7 @@ func NewConfigFromMap(configMap map[string]string) (*Config, error) {
 		cm.AsString(QueueSidecarImageKey, &nc.QueueSidecarImage),
 		cm.AsStringSet(DefaultQueueSidecarServices, &nc.DefaultQueueSidecarServices),
 		cm.AsString(OgQueueSidecarImage, &nc.OgQueueSidecarImage),
+		cm.AsBool(EnableQcnlVolumeMountKey, &nc.EnableQcnlVolumeMount),
 
 		cm.AsDuration(ProgressDeadlineKey, &nc.ProgressDeadline),
 		cm.AsDuration(digestResolutionTimeoutKey, &nc.DigestResolutionTimeout),
@@ -275,6 +281,10 @@ type Config struct {
 
 	DefaultQueueSidecarServices sets.Set[string]
 	OgQueueSidecarImage         string
+
+	// EnableQcnlVolumeMount controls whether to add the SGX QCNL volume mount
+	// to the queue-proxy container. Set to false for AKS deployments.
+	EnableQcnlVolumeMount bool
 
 	// Repositories for which tag to digest resolving should be skipped.
 	RegistriesSkippingTagResolving sets.Set[string]

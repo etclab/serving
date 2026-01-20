@@ -14,30 +14,29 @@ export KO_DOCKER_REPO='docker.io/atosh502'
 # All available strategies
 ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "member-efunction" "leader-efunction" "both" "both-sig")
 
-# Deployment YAML containing queue-sidecar-image config
-DEPLOYMENT_YAML="$REPO_ROOT/config/core/configmaps/deployment.yaml"
+# ConfigMap containing queue-sidecar-image config
+CONFIGMAP_NAME="config-deployment"
+CONFIGMAP_NAMESPACE="knative-serving"
 
 # Set USE_AKS=true when running on AKS (skips local QCNL volume mount)
-USE_AKS=${USE_AKS:-false}
+# Export so child scripts (teardown.sh, deploy-services.sh) can access it
+export USE_AKS=${USE_AKS:-false}
 
 # Queue sidecar images for each variant type
 # Use AKS-specific images (no QCNL volume mount) when USE_AKS=true
-if [[ "$USE_AKS" == "true" ]]; then
-    QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench-aks"
-    QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench-aks"
-else
-    QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
-    QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
-fi
+QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
+QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
 
-# Functions to get/set queue-sidecar-image
+# Functions to get/set queue-sidecar-image via kubectl
 get_queue_sidecar_image() {
-    grep -E "^  queue-sidecar-image:" "$DEPLOYMENT_YAML" | sed 's/.*: //'
+    kubectl get configmap "$CONFIGMAP_NAME" -n "$CONFIGMAP_NAMESPACE" \
+        -o jsonpath='{.data.queue-sidecar-image}'
 }
 
 set_queue_sidecar_image() {
     local new_image="$1"
-    sed -i "s|^  queue-sidecar-image:.*|  queue-sidecar-image: $new_image|" "$DEPLOYMENT_YAML"
+    kubectl patch configmap "$CONFIGMAP_NAME" -n "$CONFIGMAP_NAMESPACE" \
+        --type merge -p "{\"data\":{\"queue-sidecar-image\":\"$new_image\"}}"
     echo "Set queue-sidecar-image to: $new_image"
 }
 
@@ -80,7 +79,13 @@ FORMAT_LIMIT="${5:-300}"  # Number of records to process for statistics
 
 timestamp=$(date +%F_%T)
 ns=default
-ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+
+# For AKS runs, store artifacts in a separate "aks" subdirectory
+if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
+  ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}/aks"
+else
+  ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+fi
 
 mkdir -p "$ARTIFACTS"
 
@@ -90,6 +95,11 @@ exec > >(tee -a "$LOGFILE") 2>&1
 
 echo "=========================================="
 echo "Running func-chain benchmark"
+if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
+  echo "Environment: AKS"
+else
+  echo "Environment: Local"
+fi
 echo "Strategy: $STRATEGY"
 echo "Rate: $RATE req/sec"
 echo "Duration: $DURATION"
@@ -157,15 +167,16 @@ function run_benchmark_for_strategy() {
     else
       echo "queue-sidecar-image already set to $queue_image"
     fi
-    echo "Running dev/setup.sh to apply configuration..."
-    "$REPO_ROOT/dev/setup.sh"
   else
     echo "Using default queue-sidecar-image for strategy: $strategy"
   fi
 
+  echo "Running dev/setup.sh to apply configuration..."
+  "$REPO_ROOT/dev/setup.sh"
+
   # Deploy services for the strategy
   if [[ "${SKIP_DEPLOY:-false}" != "true" ]]; then
-    "$SCRIPT_DIR/deploy-services.sh" "$strategy"
+    USE_AKS="$USE_AKS" "$SCRIPT_DIR/deploy-services.sh" "$strategy"
     sleep 10
   fi
 
@@ -207,6 +218,7 @@ fi
 # Run benchmarks for each strategy
 for strategy in "${STRATEGIES_TO_RUN[@]}"; do
   run_benchmark_for_strategy "$strategy"
+  sleep 60  # Wait between strategies
 done
 
 echo ""
@@ -227,3 +239,11 @@ for strategy in "${STRATEGIES_TO_RUN[@]}"; do
   fi
 done
 echo "=========================================="
+
+# Reset QCNL volume mount setting if running in AKS mode
+if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
+  echo ""
+  echo "Resetting QCNL volume mount setting to default (enabled)..."
+  kubectl patch configmap config-deployment -n knative-serving \
+    --type merge -p '{"data":{"enable-qcnl-volume-mount":"true"}}'
+fi

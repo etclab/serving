@@ -660,8 +660,9 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	if c.VolumeMounts == nil {
 		c.VolumeMounts = []corev1.VolumeMount{}
 	}
-	// Only add SGX QCNL volume mount for EGO queue-proxy (not for OG queue-proxy)
-	if useSGXResources {
+	// Only add SGX QCNL volume mount for EGO queue-proxy when enabled
+	// (disabled for AKS deployments via config-deployment ConfigMap)
+	if useSGXResources && cfg.Deployment.EnableQcnlVolumeMount {
 		c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
 	}
 

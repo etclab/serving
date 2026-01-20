@@ -1,0 +1,91 @@
+#!/bin/bash
+
+set -e
+
+# Change to the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the repository root (4 levels up from test/performance/benchmarks/func-chain/)
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+
+echo "=========================================="
+echo "Setting up AKS cluster for func-chain benchmark..."
+echo "=========================================="
+
+# Setup AKS cluster with SGX support (idempotent)
+"$SCRIPT_DIR/setup-aks-cluster.sh"
+
+echo ""
+echo "=========================================="
+echo "Deploying Knative Serving..."
+echo "=========================================="
+
+cd "$REPO_ROOT"
+
+# Deploy Knative Serving and related components
+"$REPO_ROOT/dev/setup.sh"
+
+# Setup Knative Eventing (required for Broker/Trigger resources)
+echo "Installing Knative Eventing v1.16.5..."
+kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.16.5/eventing-crds.yaml
+kubectl wait --for=condition=Established --all crd --timeout=60s
+kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.16.5/eventing-core.yaml
+kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.16.5/in-memory-channel.yaml
+kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.16.5/mt-channel-broker.yaml
+kubectl wait --for=condition=Ready pods --all -n knative-eventing --timeout=300s
+echo "Knative Eventing installation complete."
+
+# Disable QCNL volume mount for AKS (Azure has its own DCAP/PCCS configuration)
+echo "Disabling QCNL volume mount for AKS..."
+kubectl patch configmap config-deployment -n knative-serving \
+  --type merge -p '{"data":{"enable-qcnl-volume-mount":"false"}}'
+
+# Note: SGX device plugin is NOT deployed separately.
+# AKS with confcom addon provides SGX support automatically.
+
+# Note: update-pccs-url.sh is NOT needed for AKS.
+# Azure has its own working PCCS for attestation.
+
+echo ""
+echo "=========================================="
+echo "Setting up etcd for key registry..."
+echo "=========================================="
+
+# Setup etcd for key registry (needed for leader-efunction/member-efunction strategies)
+"$REPO_ROOT/dev/setup-etcd.sh"
+
+echo ""
+echo "=========================================="
+echo "Setting up Zipkin for tracing..."
+echo "=========================================="
+
+# Setup Zipkin for tracing
+"$REPO_ROOT/dev/setup-zipkin.sh"
+
+echo ""
+echo "=========================================="
+echo "Creating performance-test-config secret..."
+echo "=========================================="
+
+# Create performance-test-config secret
+source "$REPO_ROOT/eval/s/env.sh"
+
+kubectl delete secret performance-test-config -n default --ignore-not-found=true
+kubectl create secret generic performance-test-config -n default \
+  --from-literal=systemnamespace="${SYSTEM_NAMESPACE:-knative-serving}" \
+  --from-literal=jobname="${JOB_NAME:-local}" \
+  --from-literal=buildid="${BUILD_ID:-local}"
+
+echo ""
+echo "=========================================="
+echo "Cluster setup complete."
+echo "=========================================="
+echo ""
+echo "Next steps:"
+echo "  1. Deploy services: USE_AKS=true ./deploy-services.sh <strategy>"
+echo "  2. Run benchmark:   USE_AKS=true ./run-benchmark.sh <strategy> <rate> <duration>"
+echo ""
+echo "Note: QCNL volume mount has been automatically disabled for AKS."
+echo "      USE_AKS=true ensures AKS-specific service configs are used."
+echo ""
+echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig"

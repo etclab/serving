@@ -7,10 +7,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STRATEGY="${1:-both}"
 ns=default
 
-echo "=========================================="
-echo "Deploying func-chain services"
-echo "Strategy: $STRATEGY"
-echo "=========================================="
+# AKS mode: use services/aks/ directory (no QCNL volume mounts)
+# Set USE_AKS=true to enable (consistent with run-benchmark.sh)
+# Export so child scripts (teardown.sh) can access it
+export USE_AKS="${USE_AKS:-false}"
+if [[ "$USE_AKS" == "1" || "$USE_AKS" == "true" ]]; then
+  SERVICES_DIR="$SCRIPT_DIR/services/aks"
+  echo "=========================================="
+  echo "Deploying func-chain services (AKS mode)"
+  echo "Strategy: $STRATEGY"
+  echo "=========================================="
+  # Ensure QCNL volume mount is disabled for AKS
+  echo "Ensuring QCNL volume mount is disabled for AKS..."
+  kubectl patch configmap config-deployment -n knative-serving \
+    --type merge -p '{"data":{"enable-qcnl-volume-mount":"false"}}'
+else
+  SERVICES_DIR="$SCRIPT_DIR/services"
+  echo "=========================================="
+  echo "Deploying func-chain services"
+  echo "Strategy: $STRATEGY"
+  echo "=========================================="
+fi
 
 # Validate strategy
 case "$STRATEGY" in
@@ -30,7 +47,12 @@ esac
 "$SCRIPT_DIR/pre-config.sh" "$STRATEGY"
 
 # Deploy the services for the selected strategy
-SERVICE_FILE="$SCRIPT_DIR/services/${STRATEGY}.yaml"
+# For knative strategy, always use the base services directory (no SGX volumes needed)
+if [[ "$STRATEGY" == "knative" ]]; then
+  SERVICE_FILE="$SCRIPT_DIR/services/${STRATEGY}.yaml"
+else
+  SERVICE_FILE="$SERVICES_DIR/${STRATEGY}.yaml"
+fi
 COMMON_DIR="$SCRIPT_DIR/common"
 
 if [[ ! -f "$SERVICE_FILE" ]]; then
@@ -48,7 +70,7 @@ if [[ "$STRATEGY" == "member-efunction" ]]; then
   echo "Installing service-config for member..."
   "$SCRIPT_DIR/service-config.sh"
 
-  LEADER_SERVICE_FILE="$SCRIPT_DIR/services/leader-efunction.yaml"
+  LEADER_SERVICE_FILE="$SERVICES_DIR/leader-efunction.yaml"
 
   # Deploy leader services first
   echo "Deploying leader services from: $LEADER_SERVICE_FILE"

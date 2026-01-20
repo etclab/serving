@@ -29,16 +29,21 @@ data:
   # queue-sidecar-image: ko://knative.dev/serving/cmd/queue
   # use a fixed tag instead of `latest` to avoid pulling the latest image
   # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:main
-  queue-sidecar-image: docker.io/atosh502/queue-proxy-ego-pre:bench
+  queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:bench
   # queue-sidecar-image: atosh502/queue-39be6f1d08a095bd076a71d288d295b6:og-oct
   # this image is built with debug: false in enclave.json
   # queue-sidecar-image: docker.io/atosh502/queue-proxy-ego:debug-false
 
   # these services will have the og queue sidecar image injected
   default-queue-sidecar-services: "sequence-display,appender,validate-fun-stock,vote-fun-stock,count-vote-fun-stock,display-fun-stock"
-  # sidecar image built from main branch without any modification required for 
+  # sidecar image built from main branch without any modification required for
   # some services which don't require ego-enabled functions or queue-proxy
   og-queue-sidecar-image: docker.io/atosh502/queue-39be6f1d08a095bd076a71d288d295b6:og
+
+  # Enable SGX QCNL volume mount for queue-proxy. Set to "false" for AKS deployments.
+  # Default is "true" (enabled for local/minikube environments that need QCNL config).
+  enable-qcnl-volume-mount: "true"
+
   _example: |-
     ################################
     #                              #
@@ -135,3 +140,8 @@ data:
     #     selector:
     #       use-gvisor: "please"
     runtime-class-name: ""
+
+    # Enable SGX QCNL volume mount for queue-proxy containers.
+    # Set to "false" for AKS/cloud deployments where QCNL config is not needed.
+    # Default is "true" (enabled for local/minikube environments).
+    enable-qcnl-volume-mount: "true"
