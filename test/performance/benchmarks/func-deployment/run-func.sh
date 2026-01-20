@@ -43,7 +43,13 @@ esac
 
 # Use BENCHMARK_TIMESTAMP if set (from run-benchmark.sh), otherwise create new timestamp
 timestamp=${BENCHMARK_TIMESTAMP:-$(date +%F_%T)}
-RUN_DIR="$SCRIPT_DIR/run/${timestamp}/${VARIANT}"
+
+# For AKS runs, store artifacts in a separate "aks" subdirectory
+if [[ "$USE_AKS" == "true" ]]; then
+    RUN_DIR="$SCRIPT_DIR/run/${timestamp}/aks/${VARIANT}"
+else
+    RUN_DIR="$SCRIPT_DIR/run/${timestamp}/${VARIANT}"
+fi
 
 mkdir -p "${RUN_DIR}"
 

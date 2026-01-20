@@ -8,8 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Get the repository root (4 levels up from test/performance/benchmarks/func-deployment/)
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
-DEPLOYMENT_YAML="$REPO_ROOT/config/core/configmaps/deployment.yaml"
-REPEAT=${REPEAT:-50}
+# ConfigMap containing queue-sidecar-image config
+CONFIGMAP_NAME="config-deployment"
+CONFIGMAP_NAMESPACE="knative-serving"
+
+REPEAT=${REPEAT:-25}
 
 # Set USE_AKS=true when running on AKS (skips local QCNL volume mount)
 USE_AKS=${USE_AKS:-false}
@@ -20,25 +23,23 @@ export BENCHMARK_TIMESTAMP
 echo "Benchmark run timestamp: $BENCHMARK_TIMESTAMP"
 
 # Queue sidecar images for each variant type
-# Use AKS-specific images (no QCNL volume mount) when USE_AKS=true
-if [[ "$USE_AKS" == "true" ]]; then
-    QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench-aks"
-    QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench-aks"
-else
-    QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
-    QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
-fi
+QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
+QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
 
-# Save the original queue-sidecar-image value
+# Functions to get/set queue-sidecar-image via kubectl
 get_queue_sidecar_image() {
-    grep -E "^  queue-sidecar-image:" "$DEPLOYMENT_YAML" | sed 's/.*: //'
+    kubectl get configmap "$CONFIGMAP_NAME" -n "$CONFIGMAP_NAMESPACE" \
+        -o jsonpath='{.data.queue-sidecar-image}'
 }
 
 set_queue_sidecar_image() {
     local new_image="$1"
-    sed -i "s|^  queue-sidecar-image:.*|  queue-sidecar-image: $new_image|" "$DEPLOYMENT_YAML"
+    kubectl patch configmap "$CONFIGMAP_NAME" -n "$CONFIGMAP_NAMESPACE" \
+        --type merge -p "{\"data\":{\"queue-sidecar-image\":\"$new_image\"}}"
     echo "Set queue-sidecar-image to: $new_image"
 }
+
+# Save the original queue-sidecar-image value
 
 ORIGINAL_QUEUE_IMAGE=$(get_queue_sidecar_image)
 echo "Original queue-sidecar-image: $ORIGINAL_QUEUE_IMAGE"
@@ -79,18 +80,40 @@ run_variant() {
     echo "Completed benchmark for variant: $variant"
 }
 
-# Run each variant
-# knative: no queue-sidecar-image change needed (uses default/og image)
-# run_variant "knative" ""
+# All variants to run
+ALL_VARIANTS=("knative" "efunction" "leader-efunction" "member-efunction")
 
-# # efunction: uses queue-proxy-ego
-# run_variant "efunction" "$QUEUE_IMAGE_EGO"
+# Get queue image for a given variant
+get_queue_image_for_variant() {
+    local variant=$1
+    case "$variant" in
+        knative)
+            echo ""  # No change needed, uses default
+            ;;
+        efunction)
+            echo "$QUEUE_IMAGE_EGO"
+            ;;
+        leader-efunction|member-efunction)
+            echo "$QUEUE_IMAGE_EGO_PRE"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
 
-# # leader-efunction: uses queue-proxy-ego-pre
-run_variant "leader-efunction" "$QUEUE_IMAGE_EGO_PRE"
+# Run benchmarks for each variant with 60s delay between runs
+for i in "${!ALL_VARIANTS[@]}"; do
+    variant="${ALL_VARIANTS[$i]}"
+    queue_image=$(get_queue_image_for_variant "$variant")
+    run_variant "$variant" "$queue_image"
 
-# # # member-efunction: uses queue-proxy-ego-pre (same as leader)
-# run_variant "member-efunction" "$QUEUE_IMAGE_EGO_PRE"
+    # Add 60s delay between variants (skip after last variant)
+    if [[ $i -lt $((${#ALL_VARIANTS[@]} - 1)) ]]; then
+        echo "Waiting 60s before next variant..."
+        sleep 60
+    fi
+done
 
 echo ""
 echo "=========================================="
