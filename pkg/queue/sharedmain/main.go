@@ -19,9 +19,12 @@ package sharedmain
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -163,6 +166,12 @@ type Env struct {
 	AttachSignature bool `split_words:"true"` // optional
 	VerifySignature bool `split_words:"true"` // optional
 	DisableLogging  bool `split_words:"true"` // optional
+
+	// Embedded enclave files (loaded from filesystem, not env vars)
+	ClientPkPem    []byte            // Contents of /client-pk.pem
+	GenesisHash    []byte            // Contents of /genesis.hash
+	GenesisHashSig []byte            // Contents of /genesis.hash.sig
+	ClientPubKey   ed25519.PublicKey // Parsed Ed25519 public key from ClientPkPem
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -374,6 +383,78 @@ func initEtcdWithRetry(d *Defaults) {
 	d.KeyRegistry.InitEtcdWithRetry()
 }
 
+// loadEnclaveEmbeddedFiles reads the files embedded in the enclave (defined in enclave.json)
+// and stores their contents in the Env struct for later access.
+func loadEnclaveEmbeddedFiles(env *Env) {
+	logDev := mutil.LogWithPrefix("dev - loadEnclaveEmbeddedFiles")
+
+	embeddedFiles := []struct {
+		path   string
+		target *[]byte
+		name   string
+	}{
+		{"/client-pk.pem", &env.ClientPkPem, "ClientPkPem"},
+		{"/genesis.hash", &env.GenesisHash, "GenesisHash"},
+		{"/genesis.hash.sig", &env.GenesisHashSig, "GenesisHashSig"},
+	}
+
+	for _, f := range embeddedFiles {
+		if _, err := os.Stat(f.path); os.IsNotExist(err) {
+			logDev("Embedded file %s does not exist in enclave memory", f.path)
+			continue
+		}
+
+		data, err := os.ReadFile(f.path)
+		if err != nil {
+			logDev("Error reading embedded file %s: %v", f.path, err)
+			continue
+		}
+
+		*f.target = data
+		logDev("Successfully loaded embedded file %s (%d bytes)", f.path, len(data))
+		logDev("  %s contents: %s", f.name, string(data))
+	}
+
+	// Parse the Ed25519 public key from the PEM file
+	if len(env.ClientPkPem) > 0 {
+		pubKey, err := parseEd25519PublicKey(env.ClientPkPem)
+		if err != nil {
+			logDev("Error parsing Ed25519 public key: %v", err)
+		} else {
+			env.ClientPubKey = pubKey
+			logDev("Successfully parsed Ed25519 public key (%d bytes)", len(pubKey))
+		}
+	}
+
+	logDev("Finished loading enclave embedded files")
+}
+
+// parseEd25519PublicKey parses an Ed25519 public key from PEM-encoded data
+func parseEd25519PublicKey(pemData []byte) (ed25519.PublicKey, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	// Try parsing as PKIX public key (standard format)
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		// If PKIX parsing fails, try parsing the raw bytes directly
+		// (in case it's just the raw 32-byte Ed25519 public key)
+		if len(block.Bytes) == ed25519.PublicKeySize {
+			return ed25519.PublicKey(block.Bytes), nil
+		}
+		return nil, fmt.Errorf("failed to parse public key: %w", err)
+	}
+
+	edPub, ok := pub.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("public key is not an Ed25519 key, got %T", pub)
+	}
+
+	return edPub, nil
+}
+
 func printFilesUnderProc() {
 	logDev := mutil.LogWithPrefix("dev - printFilesUnderProc")
 
@@ -445,6 +526,10 @@ func Main(opts ...Option) error {
 
 	// NOTE: d.Env is very very useful
 	d.Env = env.Env
+
+	// Load enclave embedded files in a goroutine
+	// These files are defined in dev/queue-proxy/enclave.json
+	go loadEnclaveEmbeddedFiles(&d.Env)
 
 	// Setup the Logger.
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
