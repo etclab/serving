@@ -172,6 +172,10 @@ type Env struct {
 	GenesisHash    []byte            // Contents of /genesis.hash
 	GenesisHashSig []byte            // Contents of /genesis.hash.sig
 	ClientPubKey   ed25519.PublicKey // Parsed Ed25519 public key from ClientPkPem
+
+	// Enclave-generated Ed25519 keypair for signing hashes
+	EnclavePublicKey  ed25519.PublicKey  // Generated public key for verification
+	EnclavePrivateKey ed25519.PrivateKey // Generated private key for signing
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -383,6 +387,21 @@ func initEtcdWithRetry(d *Defaults) {
 	d.KeyRegistry.InitEtcdWithRetry()
 }
 
+// generateEnclaveKeypair generates a new Ed25519 keypair for signing hashes within the enclave
+func generateEnclaveKeypair(env *Env) {
+	logDev := mutil.LogWithPrefix("dev - generateEnclaveKeypair")
+
+	pubKey, privKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		logDev("Error generating Ed25519 keypair: %v", err)
+		return
+	}
+
+	env.EnclavePublicKey = pubKey
+	env.EnclavePrivateKey = privKey
+	logDev("Successfully generated enclave Ed25519 keypair (public key: %d bytes)", len(pubKey))
+}
+
 // loadEnclaveEmbeddedFiles reads the files embedded in the enclave (defined in enclave.json)
 // and stores their contents in the Env struct for later access.
 func loadEnclaveEmbeddedFiles(env *Env) {
@@ -423,6 +442,36 @@ func loadEnclaveEmbeddedFiles(env *Env) {
 		} else {
 			env.ClientPubKey = pubKey
 			logDev("Successfully parsed Ed25519 public key (%d bytes)", len(pubKey))
+		}
+	}
+
+	// Verify the genesis hash signature using the client's public key
+	if len(env.GenesisHash) > 0 && len(env.GenesisHashSig) > 0 && env.ClientPubKey != nil {
+		// Decode hex-encoded hash and signature back to binary
+		hashBytes, err := hex.DecodeString(string(bytes.TrimSpace(env.GenesisHash)))
+		if err != nil {
+			logDev("Error decoding GenesisHash from hex: %v", err)
+		} else {
+			sigBytes, err := hex.DecodeString(string(bytes.TrimSpace(env.GenesisHashSig)))
+			if err != nil {
+				logDev("Error decoding GenesisHashSig from hex: %v", err)
+			} else {
+				if ed25519.Verify(env.ClientPubKey, hashBytes, sigBytes) {
+					logDev("Genesis hash signature verification PASSED")
+				} else {
+					logDev("ERROR: Genesis hash signature verification FAILED - signature does not match")
+				}
+			}
+		}
+	} else {
+		if len(env.GenesisHash) == 0 {
+			logDev("Skipping signature verification: GenesisHash not loaded")
+		}
+		if len(env.GenesisHashSig) == 0 {
+			logDev("Skipping signature verification: GenesisHashSig not loaded")
+		}
+		if env.ClientPubKey == nil {
+			logDev("Skipping signature verification: ClientPubKey not available")
 		}
 	}
 
@@ -527,9 +576,12 @@ func Main(opts ...Option) error {
 	// NOTE: d.Env is very very useful
 	d.Env = env.Env
 
-	// Load enclave embedded files in a goroutine
+	// Generate Ed25519 keypair for signing hashes within the enclave
+	generateEnclaveKeypair(&d.Env)
+
+	// Load enclave embedded files
 	// These files are defined in dev/queue-proxy/enclave.json
-	go loadEnclaveEmbeddedFiles(&d.Env)
+	loadEnclaveEmbeddedFiles(&d.Env)
 
 	// Setup the Logger.
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
