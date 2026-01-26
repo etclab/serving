@@ -1,0 +1,3 @@
+*.pem
+*.hash
+*.hash.sig
