@@ -504,6 +504,41 @@ func parseEd25519PublicKey(pemData []byte) (ed25519.PublicKey, error) {
 	return edPub, nil
 }
 
+func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
+	logDev := mutil.LogWithPrefix("dev - publishEnclavePublicKey")
+
+	// Store enclave public key with hash chain for tamper-evident audit log
+	if d.Env.EnclavePublicKey != nil && d.Env.EnclavePrivateKey != nil {
+		var genesisHashBytes []byte
+		if len(d.Env.GenesisHash) > 0 {
+			var err error
+			genesisHashBytes, err = hex.DecodeString(string(bytes.TrimSpace(d.Env.GenesisHash)))
+			if err != nil {
+				logger.Warnw("Failed to decode genesis hash, skipping hash chain storage", zap.Error(err))
+			}
+		}
+
+		if len(genesisHashBytes) > 0 || len(d.Env.GenesisHash) == 0 {
+			err := d.KeyRegistry.StoreEnclavePublicKeyWithRetry(
+				d.Env.ServingPod,
+				d.Env.EnclavePublicKey,
+				d.Env.EnclavePrivateKey,
+				d.Env.ClientPubKey,
+				genesisHashBytes,
+				5, // maxRetries
+			)
+			if err != nil {
+				logger.Warnw("Failed to store enclave public key with hash chain", zap.Error(err))
+			} else {
+				logger.Warnw("Successfully stored enclave public key with hash chain",
+					zap.String("podID", d.Env.ServingPod))
+			}
+		}
+	} else {
+		logDev("Enclave keypair not available, skipping hash chain storage")
+	}
+}
+
 func printFilesUnderProc() {
 	logDev := mutil.LogWithPrefix("dev - printFilesUnderProc")
 
@@ -702,6 +737,9 @@ func Main(opts ...Option) error {
 	// once etcd is ready fetch the static function chains
 	<-d.KeyRegistry.IsEtcdReady
 	d.KeyRegistry.FetchStaticFunctionChains()
+
+	// publish enclave public key for this pod
+	publishEnclavePublicKey(&d, logger)
 
 	// is pod read for proxy re-encryption?
 	// wait until this pod becomes the leader or joins as a member
