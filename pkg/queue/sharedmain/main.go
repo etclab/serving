@@ -523,7 +523,6 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
 				d.Env.ServingPod,
 				d.Env.EnclavePublicKey,
 				d.Env.EnclavePrivateKey,
-				d.Env.ClientPubKey,
 				genesisHashBytes,
 				5, // maxRetries
 			)

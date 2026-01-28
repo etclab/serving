@@ -1,6 +1,7 @@
 package kregistry
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -54,6 +56,18 @@ const (
 	EnclaveKeysPrefix      = "enclave-keys/"
 	EnclavePublicKeySuffix = "/publicKey"
 )
+
+// LocalVerifiedState tracks the last verified chain state (in-memory).
+// This allows incremental verification for multiple writes from the same pod.
+// State is lost on restart, requiring re-verification from genesis.
+type LocalVerifiedState struct {
+	mu             sync.RWMutex
+	verifiedIdx    uint64
+	verifiedDigest []byte
+}
+
+// Package-level local state for chain verification caching
+var localState = &LocalVerifiedState{}
 
 // ============================================================
 // Hash Chain Helper Functions
@@ -106,10 +120,7 @@ func computeDataSignatureMessage(dataKey string, idx uint64, payloadHash []byte,
 }
 
 // computeNewDigest computes the chain digest: H(prev_digest || H(entry_fields) || H(entry_sig))
-func computeNewDigest(prevDigest []byte, entry *HashChainEntry) []byte {
-	// Hash the entry fields (without sig)
-	entryFieldsHash := computeEntrySignatureMessage(entry)
-
+func computeNewDigest(prevDigest []byte, entryFieldsHash []byte, entry *HashChainEntry) []byte {
 	// Hash the signature
 	sigHash := sha256.Sum256(entry.EntrySig)
 
@@ -147,21 +158,158 @@ func (kr *KeyRegistry) GetHashChainHead(ctx context.Context) (*HashChainHead, in
 	}
 
 	logDev("Retrieved hash chain head: idx=%d, digest=%x", head.Idx, head.Digest)
-	// TODO: instead of using ModRevision use the Idx from head?
 	return &head, resp.Kvs[0].ModRevision, nil
 }
 
-// TODO: this should use the public key of respective function
 // VerifyHeadSignature verifies the signature on the hash chain head
-func VerifyHeadSignature(head *HashChainHead, clientPubKey ed25519.PublicKey) error {
-	if clientPubKey == nil {
-		return fmt.Errorf("client public key is nil")
+func VerifyHeadSignature(head *HashChainHead, writerPubKey ed25519.PublicKey) error {
+	if writerPubKey == nil {
+		return fmt.Errorf("writer public key is nil")
 	}
 
 	msg := computeHeadSignatureMessage(head.Idx, head.WriterID, head.Digest)
-	if !ed25519.Verify(clientPubKey, msg, head.HeadSig) {
+	if !ed25519.Verify(writerPubKey, msg, head.HeadSig) {
 		return fmt.Errorf("head signature verification failed")
 	}
+	return nil
+}
+
+// verifyEntrySignature verifies the signature on a hash chain entry
+func verifyEntrySignature(entry *HashChainEntry, writerPubKey ed25519.PublicKey) error {
+	if writerPubKey == nil {
+		return fmt.Errorf("writer public key is nil")
+	}
+
+	msg := computeEntrySignatureMessage(entry)
+	if !ed25519.Verify(writerPubKey, msg, entry.EntrySig) {
+		return fmt.Errorf("entry signature verification failed at idx %d", entry.Idx)
+	}
+	return nil
+}
+
+// getEntry retrieves a hash chain entry from etcd by its key
+func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChainEntry, error) {
+	resp, err := kr.Client().Get(ctx, entryKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entry: %w", err)
+	}
+	if len(resp.Kvs) == 0 {
+		return nil, fmt.Errorf("entry not found: %s", entryKey)
+	}
+
+	var entry HashChainEntry
+	if err := json.Unmarshal(resp.Kvs[0].Value, &entry); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal entry: %w", err)
+	}
+	return &entry, nil
+}
+
+// getWriterPublicKey retrieves a writer's public key from etcd
+// The public key is stored in enclave-keys/<writerID>/publicKey
+func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) (ed25519.PublicKey, error) {
+	dataKey := EnclaveKeysPrefix + writerID + EnclavePublicKeySuffix
+	resp, err := kr.Client().Get(ctx, dataKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get writer public key: %w", err)
+	}
+	if len(resp.Kvs) == 0 {
+		return nil, fmt.Errorf("writer public key not found for %s", writerID)
+	}
+
+	var dataRecord HashChainDataRecord
+	if err := json.Unmarshal(resp.Kvs[0].Value, &dataRecord); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal data record: %w", err)
+	}
+
+	if len(dataRecord.Payload) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(dataRecord.Payload))
+	}
+
+	return ed25519.PublicKey(dataRecord.Payload), nil
+}
+
+// advanceAndVerifyChain verifies the hash chain from local verified state to the current head.
+// This is the core verification logic that ensures chain integrity before appending.
+func (kr *KeyRegistry) advanceAndVerifyChain(
+	ctx context.Context,
+	genesisHash []byte,
+	head *HashChainHead,
+) error {
+	logDev := mutil.LogWithPrefix("dev - advanceAndVerifyChain")
+
+	// 1. Check local state for incremental verification
+	localState.mu.RLock()
+	startIdx := localState.verifiedIdx + 1
+	prevDigest := localState.verifiedDigest
+	localState.mu.RUnlock()
+
+	// If no local state, start from genesis
+	if startIdx == 1 || prevDigest == nil {
+		startIdx = 1
+		if len(genesisHash) == 0 {
+			logDev("Warning: No genesis hash provided, using zero hash")
+			prevDigest = make([]byte, 32)
+		} else {
+			prevDigest = genesisHash
+		}
+		logDev("Starting chain verification from genesis")
+	} else {
+		logDev("Starting incremental chain verification from idx=%d", startIdx)
+	}
+
+	// TODO: bulk fetch entries at once from startIdx <= head.Idx
+	// 2. Fetch and verify entries from startIdx to head.Idx
+	for i := startIdx; i <= head.Idx; i++ {
+		entryKey := HashChainEntryPrefix + strconv.FormatUint(i, 10)
+		entry, err := kr.getEntry(ctx, entryKey)
+		if err != nil {
+			return fmt.Errorf("failed to fetch entry %d: %w", i, err)
+		}
+
+		// Verify entry.PrevDigest matches our computed prevDigest
+		if !bytes.Equal(entry.PrevDigest, prevDigest) {
+			return fmt.Errorf("chain broken at idx %d: prev_digest mismatch (expected %x, got %x)",
+				i, prevDigest, entry.PrevDigest)
+		}
+
+		// Get writer's public key and verify entry signature
+		writerPubKey, err := kr.getWriterPublicKey(ctx, entry.WriterID)
+		if err != nil {
+			return fmt.Errorf("failed to get writer public key for %s: %w", entry.WriterID, err)
+		}
+		if err := verifyEntrySignature(entry, writerPubKey); err != nil {
+			return fmt.Errorf("entry verification failed at idx %d: %w", i, err)
+		}
+
+		// Compute new digest for next iteration
+		entrySignHash := computeEntrySignatureMessage(entry)
+		prevDigest = computeNewDigest(prevDigest, entrySignHash, entry)
+		logDev("Verified entry idx=%d, writer=%s", i, entry.WriterID)
+	}
+
+	// 3. Verify final digest matches head
+	if !bytes.Equal(prevDigest, head.Digest) {
+		return fmt.Errorf("chain verification failed: final digest mismatch (expected %x, got %x)",
+			prevDigest, head.Digest)
+	}
+
+	// TODO: cache writer public keys to avoid repeated fetches
+	// 4. Verify head signature using head writer's public key
+	headWriterPubKey, err := kr.getWriterPublicKey(ctx, head.WriterID)
+	if err != nil {
+		return fmt.Errorf("failed to get head writer public key for %s: %w", head.WriterID, err)
+	}
+	if err := VerifyHeadSignature(head, headWriterPubKey); err != nil {
+		return fmt.Errorf("head signature verification failed: %w", err)
+	}
+
+	// 5. Update local state
+	localState.mu.Lock()
+	localState.verifiedIdx = head.Idx
+	localState.verifiedDigest = head.Digest
+	localState.mu.Unlock()
+
+	logDev("Chain verification complete: verified up to idx=%d", head.Idx)
 	return nil
 }
 
@@ -172,6 +320,7 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 	dataRecord *HashChainDataRecord,
 	entry *HashChainEntry,
 	newHead *HashChainHead,
+	oldHead *HashChainHead,
 	headModRev int64,
 	isFirstWrite bool,
 ) (bool, error) {
@@ -190,6 +339,11 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 	headBytes, err := json.Marshal(newHead)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal head record: %w", err)
+	}
+
+	oldHeadBytes, err := json.Marshal(oldHead)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal old head record: %w", err)
 	}
 
 	entryKey := HashChainEntryPrefix + strconv.FormatUint(entry.Idx, 10)
@@ -212,9 +366,10 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 		// Subsequent write: check head hasn't changed
 		logDev("Executing subsequent write transaction (updating head)")
 		txnResp, err = kr.Client().Txn(ctx).If(
-			clientv3.Compare(clientv3.ModRevision(HashChainHeadKey), "=", headModRev), // Head unchanged
-			clientv3.Compare(clientv3.CreateRevision(dataKey), "=", 0),                // Write-once: data key doesn't exist
-			clientv3.Compare(clientv3.CreateRevision(entryKey), "=", 0),               // Append-only: entry doesn't exist
+			clientv3.Compare(clientv3.Value(HashChainHeadKey), "=", string(oldHeadBytes)), // Old head value unchanged
+			clientv3.Compare(clientv3.ModRevision(HashChainHeadKey), "=", headModRev),     // Head unchanged
+			clientv3.Compare(clientv3.CreateRevision(dataKey), "=", 0),                    // Write-once: data key doesn't exist
+			clientv3.Compare(clientv3.CreateRevision(entryKey), "=", 0),                   // Append-only: entry doesn't exist
 		).Then(
 			clientv3.OpPut(dataKey, string(dataRecordBytes)),
 			clientv3.OpPut(entryKey, string(entryBytes)),
@@ -241,7 +396,6 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	podID string,
 	enclavePubKey ed25519.PublicKey,
 	enclavePrivKey ed25519.PrivateKey,
-	clientPubKey ed25519.PublicKey,
 	genesisHash []byte,
 ) error {
 	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithHashChain")
@@ -264,7 +418,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	isFirstWrite := false
 
 	if head == nil {
-		// First write: use genesis hash
+		// First write: use genesis hash (no verification needed - nothing to verify yet)
 		if len(genesisHash) == 0 {
 			logDev("Warning: No genesis hash provided for first write, using zero hash")
 			prevDigest = make([]byte, 32)
@@ -273,25 +427,15 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 		}
 		idx = 1
 		isFirstWrite = true
-		// TODO: if genesis hash exists then it's already verified
-		// TODO: genesis hash isn't stored unless it is verified
 		logDev("First write: using genesis hash as prev_digest")
 	} else {
-		// Verify existing head signature
-		// TODO: we verify the head signature using the writer's public key
-		// TODO: this means we need the function which updated the head last time
-		// TODO: in order to verify the head signature
-		if clientPubKey != nil {
-			if err := VerifyHeadSignature(head, clientPubKey); err != nil {
-				return fmt.Errorf("existing head signature verification failed (tampering detected): %w", err)
-			}
-			logDev("Existing head signature verified successfully")
-		} else {
-			logDev("Warning: No client public key available, skipping head signature verification")
+		// Advance local head to current head by verifying the full chain
+		if err := kr.advanceAndVerifyChain(ctx, genesisHash, head); err != nil {
+			return fmt.Errorf("chain verification failed (tampering detected): %w", err)
 		}
 		prevDigest = head.Digest
 		idx = head.Idx + 1
-		logDev("Subsequent write: chaining from idx=%d", head.Idx)
+		logDev("Chain verified, chaining from idx=%d", head.Idx)
 	}
 
 	// Compute value hash (hash of the public key payload)
@@ -323,8 +467,8 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	entry.EntrySig = ed25519.Sign(enclavePrivKey, entrySignMsg)
 
 	// Compute new digest
-	// TODO: can reuse the hash and signature from above
-	newDigest := computeNewDigest(prevDigest, entry)
+	entrySignMsgHash := entrySignMsg
+	newDigest := computeNewDigest(prevDigest, entrySignMsgHash, entry)
 
 	// Create and sign new head
 	headSignMsg := computeHeadSignatureMessage(idx, writerID, newDigest)
@@ -332,13 +476,14 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 
 	newHead := &HashChainHead{
 		Idx:      idx,
-		Digest:   newDigest,
+		Digest:   newDigest, // how is newDigest computed?
 		WriterID: writerID,
 		HeadSig:  headSig,
 	}
 
 	// Execute atomic transaction
-	success, err := kr.executeHashChainTransaction(ctx, dataKey, dataRecord, entry, newHead, headModRev, isFirstWrite)
+	oldHead := head
+	success, err := kr.executeHashChainTransaction(ctx, dataKey, dataRecord, entry, newHead, oldHead, headModRev, isFirstWrite)
 	if err != nil {
 		return err
 	}
@@ -356,7 +501,6 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 	podID string,
 	enclavePubKey ed25519.PublicKey,
 	enclavePrivKey ed25519.PrivateKey,
-	clientPubKey ed25519.PublicKey,
 	genesisHash []byte,
 	maxRetries int,
 ) error {
@@ -367,7 +511,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := kr.StoreEnclavePublicKeyWithHashChain(ctx, podID, enclavePubKey, enclavePrivKey, clientPubKey, genesisHash)
+		err := kr.StoreEnclavePublicKeyWithHashChain(ctx, podID, enclavePubKey, enclavePrivKey, genesisHash)
 		cancel()
 
 		if err == nil {
@@ -375,7 +519,6 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 			return nil
 		}
 
-		// TODO: revisit transaction conflict error detection
 		// Check if it's a conflict error (retryable)
 		if strings.Contains(err.Error(), "transaction conflict") {
 			logDev("Transaction conflict on attempt %d, retrying after %v", attempt+1, backoff)
@@ -389,7 +532,6 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 			logDev("Key already exists, write-once constraint enforced")
 			return err
 		}
-		// TODO: revisit transaction conflict error detection
 
 		// Other errors
 		logDev("Error on attempt %d: %v", attempt+1, err)
