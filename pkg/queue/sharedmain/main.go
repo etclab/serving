@@ -559,6 +559,7 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
 				d.Env.ServingPod,
 				d.Env.EnclavePublicKey,
 				d.Env.EnclavePrivateKey,
+				d.Env.EnclaveAttestationReport, // attestation report binding podId and public key to enclave
 				genesisHashBytes,
 				5, // maxRetries
 			)
@@ -566,7 +567,8 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
 				logger.Warnw("Failed to store enclave public key with hash chain", zap.Error(err))
 			} else {
 				logger.Warnw("Successfully stored enclave public key with hash chain",
-					zap.String("podID", d.Env.ServingPod))
+					zap.String("podID", d.Env.ServingPod),
+					zap.Int("attestationBytes", len(d.Env.EnclaveAttestationReport)))
 			}
 		}
 	} else {

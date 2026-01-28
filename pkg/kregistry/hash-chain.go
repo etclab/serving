@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edgelesssys/ego/attestation"
+	"github.com/edgelesssys/ego/enclave"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"knative.dev/serving/pkg/mutil"
 )
@@ -49,12 +51,19 @@ type HashChainDataRecord struct {
 	DataSig  []byte `json:"data_sig"`
 }
 
+// AttestedPublicKey packs the enclave public key and its attestation report together.
+// This is stored as the Payload in HashChainDataRecord.
+type AttestedPublicKey struct {
+	PublicKey   []byte `json:"public_key"`
+	Attestation []byte `json:"attestation"`
+}
+
 // Hash chain key paths
 const (
 	HashChainHeadKey       = "lambada/audit/head"
 	HashChainEntryPrefix   = "lambada/audit/entry/"
 	EnclaveKeysPrefix      = "enclave-keys/"
-	EnclavePublicKeySuffix = "/publicKey"
+	EnclavePublicKeySuffix = "/attested-publicKey"
 )
 
 // LocalVerifiedState tracks the last verified chain state (in-memory).
@@ -204,9 +213,18 @@ func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChai
 	return &entry, nil
 }
 
-// getWriterPublicKey retrieves a writer's public key from etcd
-// The public key is stored in enclave-keys/<writerID>/publicKey
+// getWriterPublicKey retrieves a writer's public key from etcd and verifies its attestation.
+// The public key is stored in enclave-keys/<writerID>/attested-publicKey as an AttestedPublicKey.
+//
+// Trust chain:
+// 1. Verify attestation report (Intel's root of trust)
+// 2. Verify SHA256(writerID || publicKey) matches report.Data
+// 3. Trust the public key
+// 4. Verify data signature for integrity
+// 5. Use trusted public key for hash chain signature verification
 func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) (ed25519.PublicKey, error) {
+	logDev := mutil.LogWithPrefix("dev - getWriterPublicKey")
+
 	dataKey := EnclaveKeysPrefix + writerID + EnclavePublicKeySuffix
 	resp, err := kr.Client().Get(ctx, dataKey)
 	if err != nil {
@@ -221,11 +239,61 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 		return nil, fmt.Errorf("failed to unmarshal data record: %w", err)
 	}
 
-	if len(dataRecord.Payload) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(dataRecord.Payload))
+	// Unpack the AttestedPublicKey from the payload
+	var attestedKey AttestedPublicKey
+	if err := json.Unmarshal(dataRecord.Payload, &attestedKey); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal attested public key: %w", err)
 	}
 
-	return ed25519.PublicKey(dataRecord.Payload), nil
+	if len(attestedKey.PublicKey) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(attestedKey.PublicKey))
+	}
+
+	// Strict mode: fail if attestation report is empty/nil
+	if len(attestedKey.Attestation) == 0 {
+		return nil, fmt.Errorf("attestation report is empty for writerID %s", writerID)
+	}
+
+	// 1. Verify attestation report using Intel's root of trust
+	report, err := enclave.VerifyRemoteReport(attestedKey.Attestation)
+	if err != nil {
+		if err == attestation.ErrTCBLevelInvalid {
+			// TCB level invalid is acceptable - just means old microcode/firmware
+			logDev("warning: TCB level invalid in attestation report for writerID %s", writerID)
+		} else {
+			return nil, fmt.Errorf("failed to verify attestation report for writerID %s: %w", writerID, err)
+		}
+	}
+
+	// 2. Verify enclave properties (SignerID, ProductID, SecurityVersion)
+	if err := mutil.VerifyReport(report); err != nil {
+		return nil, fmt.Errorf("enclave verification failed for writerID %s: %w", writerID, err)
+	}
+
+	// 3. Verify report data binding: SHA256(writerID || publicKey) must match report.Data
+	h := sha256.New()
+	h.Write([]byte(writerID))
+	h.Write(attestedKey.PublicKey)
+	expectedReportData := h.Sum(nil)
+
+	if !bytes.Equal(report.Data[:len(expectedReportData)], expectedReportData) {
+		return nil, fmt.Errorf("attestation report data mismatch: public key not bound to writerID %s", writerID)
+	}
+
+	logDev("Attestation verified for writerID %s", writerID)
+
+	// 4. Verify data signature for additional integrity
+	pubKey := ed25519.PublicKey(attestedKey.PublicKey)
+	payloadHash := sha256.Sum256(dataRecord.Payload)
+	dataSignMsg := computeDataSignatureMessage(dataKey, dataRecord.Idx, payloadHash[:], dataRecord.WriterID)
+	if !ed25519.Verify(pubKey, dataSignMsg, dataRecord.DataSig) {
+		return nil, fmt.Errorf("data signature verification failed for writerID %s", writerID)
+	}
+
+	logDev("Data signature verified for writerID %s", writerID)
+
+	// 5. Return the trusted public key
+	return pubKey, nil
 }
 
 // advanceAndVerifyChain verifies the hash chain from local verified state to the current head.
@@ -390,12 +458,14 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 	return true, nil
 }
 
-// StoreEnclavePublicKeyWithHashChain stores an enclave public key with hash chain integrity
+// StoreEnclavePublicKeyWithHashChain stores an enclave public key with hash chain integrity.
+// The public key and attestation report are packed together as an AttestedPublicKey.
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	ctx context.Context,
 	podID string,
 	enclavePubKey ed25519.PublicKey,
 	enclavePrivKey ed25519.PrivateKey,
+	attestationReport []byte,
 	genesisHash []byte,
 ) error {
 	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithHashChain")
@@ -438,8 +508,18 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 		logDev("Chain verified, chaining from idx=%d", head.Idx)
 	}
 
-	// Compute value hash (hash of the public key payload)
-	payloadHash := sha256.Sum256(enclavePubKey)
+	// Pack public key and attestation report together
+	attestedKey := &AttestedPublicKey{
+		PublicKey:   enclavePubKey,
+		Attestation: attestationReport,
+	}
+	payload, err := json.Marshal(attestedKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attested public key: %w", err)
+	}
+
+	// Compute value hash (hash of the packed payload)
+	payloadHash := sha256.Sum256(payload)
 
 	// Create and sign data record
 	dataSignMsg := computeDataSignatureMessage(dataKey, idx, payloadHash[:], writerID)
@@ -448,7 +528,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	dataRecord := &HashChainDataRecord{
 		Idx:      idx,
 		WriterID: writerID,
-		Payload:  enclavePubKey,
+		Payload:  payload,
 		DataSig:  dataSig,
 	}
 
@@ -496,11 +576,13 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	return nil
 }
 
-// StoreEnclavePublicKeyWithRetry stores an enclave public key with hash chain, retrying on conflicts
+// StoreEnclavePublicKeyWithRetry stores an enclave public key with hash chain, retrying on conflicts.
+// The public key and attestation report are packed together as an AttestedPublicKey.
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 	podID string,
 	enclavePubKey ed25519.PublicKey,
 	enclavePrivKey ed25519.PrivateKey,
+	attestationReport []byte,
 	genesisHash []byte,
 	maxRetries int,
 ) error {
@@ -511,7 +593,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := kr.StoreEnclavePublicKeyWithHashChain(ctx, podID, enclavePubKey, enclavePrivKey, genesisHash)
+		err := kr.StoreEnclavePublicKeyWithHashChain(ctx, podID, enclavePubKey, enclavePrivKey, attestationReport, genesisHash)
 		cancel()
 
 		if err == nil {
@@ -541,14 +623,14 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 	return fmt.Errorf("failed to store enclave public key after %d attempts", maxRetries)
 }
 
-// TODO: need to think more on how to verify the enclave public key
-// TODO: where is this being used? -> nowhere
-// GetEnclavePublicKeyFromHashChain retrieves and verifies an enclave public key from the hash chain
+// TODO: remove this
+// GetEnclavePublicKeyFromHashChain retrieves and verifies an enclave public key and its attestation from the hash chain.
+// Returns the public key and attestation report packed as AttestedPublicKey.
 func (kr *KeyRegistry) GetEnclavePublicKeyFromHashChain(
 	ctx context.Context,
 	podID string,
 	clientPubKey ed25519.PublicKey,
-) (ed25519.PublicKey, error) {
+) (*AttestedPublicKey, error) {
 	logDev := mutil.LogWithPrefix("dev - GetEnclavePublicKeyFromHashChain")
 
 	dataKey := EnclaveKeysPrefix + podID + EnclavePublicKeySuffix
@@ -567,20 +649,27 @@ func (kr *KeyRegistry) GetEnclavePublicKeyFromHashChain(
 		return nil, fmt.Errorf("failed to unmarshal data record: %w", err)
 	}
 
-	// Verify data signature
+	// Verify data signature using the packed payload hash
 	payloadHash := sha256.Sum256(dataRecord.Payload)
 	dataSignMsg := computeDataSignatureMessage(dataKey, dataRecord.Idx, payloadHash[:], dataRecord.WriterID)
 
-	// Get the enclave public key from the payload to verify the signature
-	if len(dataRecord.Payload) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid payload size: expected %d, got %d", ed25519.PublicKeySize, len(dataRecord.Payload))
+	// Unpack the AttestedPublicKey from the payload
+	var attestedKey AttestedPublicKey
+	if err := json.Unmarshal(dataRecord.Payload, &attestedKey); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal attested public key: %w", err)
 	}
 
-	enclavePubKey := ed25519.PublicKey(dataRecord.Payload)
+	// Validate public key size
+	if len(attestedKey.PublicKey) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(attestedKey.PublicKey))
+	}
+
+	// Verify signature using the enclave's public key
+	enclavePubKey := ed25519.PublicKey(attestedKey.PublicKey)
 	if !ed25519.Verify(enclavePubKey, dataSignMsg, dataRecord.DataSig) {
 		return nil, fmt.Errorf("data signature verification failed (tampering detected)")
 	}
 
-	logDev("Successfully verified enclave public key for pod %s at idx %d", podID, dataRecord.Idx)
-	return enclavePubKey, nil
+	logDev("Successfully verified enclave public key for pod %s at idx %d (attestation: %d bytes)", podID, dataRecord.Idx, len(attestedKey.Attestation))
+	return &attestedKey, nil
 }
