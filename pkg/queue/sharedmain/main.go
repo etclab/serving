@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
@@ -70,6 +71,7 @@ import (
 	"knative.dev/serving/pkg/queue"
 	"knative.dev/serving/pkg/queue/readiness"
 
+	"github.com/edgelesssys/ego/enclave"
 	"github.com/etclab/pre"
 	injection "knative.dev/pkg/injection"
 )
@@ -176,6 +178,9 @@ type Env struct {
 	// Enclave-generated Ed25519 keypair for signing hashes
 	EnclavePublicKey  ed25519.PublicKey  // Generated public key for verification
 	EnclavePrivateKey ed25519.PrivateKey // Generated private key for signing
+
+	// Enclave attestation report binding the public key and podId to the enclave
+	EnclaveAttestationReport []byte
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -388,6 +393,8 @@ func initEtcdWithRetry(d *Defaults) {
 }
 
 // generateEnclaveKeypair generates a new Ed25519 keypair for signing hashes within the enclave
+// and creates an attestation report binding the public key and podId (writerId) to the enclave.
+// The report data is: SHA256(podId || publicKey)
 func generateEnclaveKeypair(env *Env) {
 	logDev := mutil.LogWithPrefix("dev - generateEnclaveKeypair")
 
@@ -400,6 +407,35 @@ func generateEnclaveKeypair(env *Env) {
 	env.EnclavePublicKey = pubKey
 	env.EnclavePrivateKey = privKey
 	logDev("Successfully generated enclave Ed25519 keypair (public key: %d bytes)", len(pubKey))
+
+	// Generate attestation report binding podId (writerId) and public key to the enclave
+	// This allows verifiers to confirm the public key was generated inside a legitimate enclave
+	podId := env.ServingPod
+	if podId == "" {
+		logDev("ServingPod not set, skipping attestation report generation")
+		return
+	}
+
+	// Create hash of podId + publicKey for attestation report data
+	// Hash: SHA256(podId || publicKey)
+	h := sha256.New()
+	h.Write([]byte(podId))
+	h.Write(pubKey)
+	reportData := h.Sum(nil)
+
+	logDev("Generating attestation report with reportData=SHA256(%s || pubKey)", podId)
+
+	// Generate attestation report with the hash as report data
+	// This binds the public key and podId to the enclave's identity
+	report, err := enclave.GetRemoteReport(reportData)
+	if err != nil {
+		logDev("Failed to get attestation report from ego: %v", err)
+		// Continue without attestation - the keypair is still usable
+		return
+	}
+
+	env.EnclaveAttestationReport = report
+	logDev("Successfully generated attestation report (%d bytes) binding podId=%s and public key to enclave", len(report), podId)
 }
 
 // loadEnclaveEmbeddedFiles reads the files embedded in the enclave (defined in enclave.json)
