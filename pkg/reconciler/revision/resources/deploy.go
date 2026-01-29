@@ -119,6 +119,7 @@ var (
 	hostPathDirOrCreate = corev1.HostPathDirectoryOrCreate
 
 	// Sealed state volume for persisting hash chain verified state across restarts
+	// NOTE: hostpath isn't recommended https://kubernetes.io/docs/concepts/storage/volumes/#hostpath
 	sealedStateVolume = corev1.Volume{
 		Name: "sealed-state-volume",
 		VolumeSource: corev1.VolumeSource{

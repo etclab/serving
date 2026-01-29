@@ -95,7 +95,8 @@ type SealedVerifiedState struct {
 // sealVerifiedState persists the verified state to disk using EGO sealing.
 // The state is sealed with the enclave's product key, allowing it to survive
 // enclave restarts as long as the signing key remains the same.
-func sealVerifiedState(podID string, idx uint64, digest []byte) error {
+// Filename format: <podId>_<revisionId>_<idx>.sealed
+func sealVerifiedState(podID, revisionID string, idx uint64, digest []byte) error {
 	logDev := mutil.LogWithPrefix("dev - sealVerifiedState")
 
 	state := SealedVerifiedState{
@@ -108,8 +109,8 @@ func sealVerifiedState(podID string, idx uint64, digest []byte) error {
 		return fmt.Errorf("failed to marshal verified state: %w", err)
 	}
 
-	// Use podID as additional data to bind the sealed data to this pod
-	additionalData := []byte(podID)
+	// Use podID+revisionID as additional data to bind the sealed data
+	additionalData := []byte(podID + "_" + revisionID)
 
 	sealed, err := ecrypto.SealWithProductKey(plaintext, additionalData)
 	if err != nil {
@@ -121,7 +122,9 @@ func sealVerifiedState(podID string, idx uint64, digest []byte) error {
 		return fmt.Errorf("failed to create sealed state directory: %w", err)
 	}
 
-	filePath := filepath.Join(SealedStateDir, podID+".sealed")
+	// Filename format: <podId>_<revisionId>_<idx>.sealed
+	fileName := fmt.Sprintf("%s_%s_%d.sealed", podID, revisionID, idx)
+	filePath := filepath.Join(SealedStateDir, fileName)
 	if err := os.WriteFile(filePath, sealed, 0600); err != nil {
 		return fmt.Errorf("failed to write sealed state file: %w", err)
 	}
@@ -131,23 +134,72 @@ func sealVerifiedState(podID string, idx uint64, digest []byte) error {
 }
 
 // unsealVerifiedState loads the verified state from sealed storage.
+// It finds the sealed file with the highest index for the given revision.
 // Returns (0, nil, nil) if no sealed state exists (fresh start).
-func unsealVerifiedState(podID string) (uint64, []byte, error) {
+func unsealVerifiedState(podID, revisionID string) (uint64, []byte, error) {
 	logDev := mutil.LogWithPrefix("dev - unsealVerifiedState")
 
-	filePath := filepath.Join(SealedStateDir, podID+".sealed")
-
-	sealed, err := os.ReadFile(filePath)
+	// Find all sealed files for this revision (any pod)
+	// Filename format: <podId>_<revisionId>_<idx>.sealed
+	pattern := filepath.Join(SealedStateDir, fmt.Sprintf("*_%s_*.sealed", revisionID))
+	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		if os.IsNotExist(err) {
-			logDev("No sealed state file found for pod %s (fresh start)", podID)
-			return 0, nil, nil
+		return 0, nil, fmt.Errorf("failed to glob sealed state files: %w", err)
+	}
+
+	if len(matches) == 0 {
+		logDev("No sealed state files found for revision %s (fresh start)", revisionID)
+		return 0, nil, nil
+	}
+
+	// Find the file with the highest index
+	var highestIdx uint64
+	var highestFile string
+	var highestPodID string
+
+	for _, match := range matches {
+		// Parse filename: <podId>_<revisionId>_<idx>.sealed
+		baseName := filepath.Base(match)
+		baseName = strings.TrimSuffix(baseName, ".sealed")
+
+		// The suffix is _<revisionId>_<idx>, extract the index (last part after _)
+		// We know the revisionId, so we can find where it ends
+		suffix := "_" + revisionID + "_"
+		suffixIdx := strings.Index(baseName, suffix)
+		if suffixIdx == -1 {
+			continue
 		}
+
+		filePodID := baseName[:suffixIdx]
+		idxStr := baseName[suffixIdx+len(suffix):]
+
+		idx, err := strconv.ParseUint(idxStr, 10, 64)
+		if err != nil {
+			logDev("Warning: failed to parse idx from filename %s: %v", baseName, err)
+			continue
+		}
+
+		if idx > highestIdx {
+			highestIdx = idx
+			highestFile = match
+			highestPodID = filePodID
+		}
+	}
+
+	if highestFile == "" {
+		logDev("No valid sealed state files found for revision %s", revisionID)
+		return 0, nil, nil
+	}
+
+	logDev("Found sealed state file with highest idx=%d: %s", highestIdx, highestFile)
+
+	sealed, err := os.ReadFile(highestFile)
+	if err != nil {
 		return 0, nil, fmt.Errorf("failed to read sealed state file: %w", err)
 	}
 
-	// Use podID as additional data (must match what was used during sealing)
-	additionalData := []byte(podID)
+	// Use podID+revisionID as additional data (must match what was used during sealing)
+	additionalData := []byte(highestPodID + "_" + revisionID)
 
 	plaintext, err := ecrypto.Unseal(sealed, additionalData)
 	if err != nil {
@@ -159,7 +211,7 @@ func unsealVerifiedState(podID string) (uint64, []byte, error) {
 		return 0, nil, fmt.Errorf("failed to unmarshal verified state: %w", err)
 	}
 
-	logDev("Unsealed verified state: idx=%d, digest=%x", state.VerifiedIdx, state.VerifiedDigest)
+	logDev("Unsealed verified state: idx=%d, digest=%x (from pod %s)", state.VerifiedIdx, state.VerifiedDigest, highestPodID)
 	return state.VerifiedIdx, state.VerifiedDigest, nil
 }
 
@@ -398,8 +450,8 @@ func (kr *KeyRegistry) advanceAndVerifyChain(
 
 	// If no local state, try to load from sealed storage
 	if startIdx == 1 || prevDigest == nil {
-		if kr.PodId != "" {
-			sealedIdx, sealedDigest, err := unsealVerifiedState(kr.PodId)
+		if kr.PodId != "" && kr.FunctionId != "" {
+			sealedIdx, sealedDigest, err := unsealVerifiedState(kr.PodId, kr.FunctionId)
 			if err != nil {
 				logDev("Warning: failed to unseal state: %v", err)
 			} else if sealedIdx > 0 && sealedDigest != nil {
@@ -477,8 +529,8 @@ func (kr *KeyRegistry) advanceAndVerifyChain(
 	localState.mu.Unlock()
 
 	// 6. Seal the verified state for persistence across restarts
-	if kr.PodId != "" {
-		if err := sealVerifiedState(kr.PodId, head.Idx, head.Digest); err != nil {
+	if kr.PodId != "" && kr.FunctionId != "" {
+		if err := sealVerifiedState(kr.PodId, kr.FunctionId, head.Idx, head.Digest); err != nil {
 			logDev("Warning: failed to seal verified state: %v", err)
 		}
 	}
