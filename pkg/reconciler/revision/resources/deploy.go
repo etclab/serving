@@ -115,6 +115,25 @@ var (
 		ReadOnly:  true,
 	}
 
+	// HostPath type for sealed state directory
+	hostPathDirOrCreate = corev1.HostPathDirectoryOrCreate
+
+	// Sealed state volume for persisting hash chain verified state across restarts
+	sealedStateVolume = corev1.Volume{
+		Name: "sealed-state-volume",
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: "/var/lib/sealed-state",
+				Type: &hostPathDirOrCreate,
+			},
+		},
+	}
+
+	sealedStateVolumeMount = corev1.VolumeMount{
+		Name:      "sealed-state-volume",
+		MountPath: "/var/lib/sealed-state",
+	}
+
 	// This PreStop hook is actually calling an endpoint on the queue-proxy
 	// because of the way PreStop hooks are called by kubelet. We use this
 	// to block the user-container from exiting before the queue-proxy is ready
@@ -223,6 +242,17 @@ func makePodSpec(rev *v1.Revision, cfg *config.Config) (*corev1.PodSpec, error) 
 	if cfg.Network.SystemInternalTLSEnabled() {
 		queueContainer.VolumeMounts = append(queueContainer.VolumeMounts, varCertVolumeMount)
 		extraVolumes = append(extraVolumes, certVolume(networking.ServingCertName))
+	}
+
+	// Add sealed state volume for EGO queue-proxy (services not in DefaultQueueSidecarServices)
+	useSGXResources := true
+	if serviceName, ok := rev.Labels["serving.knative.dev/service"]; ok {
+		if cfg.Deployment.DefaultQueueSidecarServices.Has(serviceName) {
+			useSGXResources = false
+		}
+	}
+	if useSGXResources {
+		extraVolumes = append(extraVolumes, sealedStateVolume)
 	}
 
 	podSpec := BuildPodSpec(rev, append(BuildUserContainers(rev), *queueContainer), cfg)

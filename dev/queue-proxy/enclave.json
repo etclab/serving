@@ -12,6 +12,12 @@
         "target": "/var/run/secrets/kubernetes.io/serviceaccount",
         "type": "hostfs",
         "readOnly": true
+    },
+    {
+        "source": "/var/lib/sealed-state",
+        "target": "/sealed-state",
+        "type": "hostfs",
+        "readOnly": false
     }
  ],
  "env": [

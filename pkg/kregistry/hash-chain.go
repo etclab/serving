@@ -9,12 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/edgelesssys/ego/attestation"
+	"github.com/edgelesssys/ego/ecrypto"
 	"github.com/edgelesssys/ego/enclave"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"knative.dev/serving/pkg/mutil"
@@ -77,6 +80,88 @@ type LocalVerifiedState struct {
 
 // Package-level local state for chain verification caching
 var localState = &LocalVerifiedState{}
+
+// Constants for sealed state storage
+const (
+	SealedStateDir = "/sealed-state"
+)
+
+// SealedVerifiedState is the struct serialized for sealed storage
+type SealedVerifiedState struct {
+	VerifiedIdx    uint64 `json:"verified_idx"`
+	VerifiedDigest []byte `json:"verified_digest"`
+}
+
+// sealVerifiedState persists the verified state to disk using EGO sealing.
+// The state is sealed with the enclave's product key, allowing it to survive
+// enclave restarts as long as the signing key remains the same.
+func sealVerifiedState(podID string, idx uint64, digest []byte) error {
+	logDev := mutil.LogWithPrefix("dev - sealVerifiedState")
+
+	state := SealedVerifiedState{
+		VerifiedIdx:    idx,
+		VerifiedDigest: digest,
+	}
+
+	plaintext, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal verified state: %w", err)
+	}
+
+	// Use podID as additional data to bind the sealed data to this pod
+	additionalData := []byte(podID)
+
+	sealed, err := ecrypto.SealWithProductKey(plaintext, additionalData)
+	if err != nil {
+		return fmt.Errorf("failed to seal verified state: %w", err)
+	}
+
+	// Ensure the sealed state directory exists
+	if err := os.MkdirAll(SealedStateDir, 0700); err != nil {
+		return fmt.Errorf("failed to create sealed state directory: %w", err)
+	}
+
+	filePath := filepath.Join(SealedStateDir, podID+".sealed")
+	if err := os.WriteFile(filePath, sealed, 0600); err != nil {
+		return fmt.Errorf("failed to write sealed state file: %w", err)
+	}
+
+	logDev("Sealed verified state: idx=%d, file=%s", idx, filePath)
+	return nil
+}
+
+// unsealVerifiedState loads the verified state from sealed storage.
+// Returns (0, nil, nil) if no sealed state exists (fresh start).
+func unsealVerifiedState(podID string) (uint64, []byte, error) {
+	logDev := mutil.LogWithPrefix("dev - unsealVerifiedState")
+
+	filePath := filepath.Join(SealedStateDir, podID+".sealed")
+
+	sealed, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logDev("No sealed state file found for pod %s (fresh start)", podID)
+			return 0, nil, nil
+		}
+		return 0, nil, fmt.Errorf("failed to read sealed state file: %w", err)
+	}
+
+	// Use podID as additional data (must match what was used during sealing)
+	additionalData := []byte(podID)
+
+	plaintext, err := ecrypto.Unseal(sealed, additionalData)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to unseal verified state: %w", err)
+	}
+
+	var state SealedVerifiedState
+	if err := json.Unmarshal(plaintext, &state); err != nil {
+		return 0, nil, fmt.Errorf("failed to unmarshal verified state: %w", err)
+	}
+
+	logDev("Unsealed verified state: idx=%d, digest=%x", state.VerifiedIdx, state.VerifiedDigest)
+	return state.VerifiedIdx, state.VerifiedDigest, nil
+}
 
 // ============================================================
 // Hash Chain Helper Functions
@@ -311,7 +396,21 @@ func (kr *KeyRegistry) advanceAndVerifyChain(
 	prevDigest := localState.verifiedDigest
 	localState.mu.RUnlock()
 
-	// If no local state, start from genesis
+	// If no local state, try to load from sealed storage
+	if startIdx == 1 || prevDigest == nil {
+		if kr.PodId != "" {
+			sealedIdx, sealedDigest, err := unsealVerifiedState(kr.PodId)
+			if err != nil {
+				logDev("Warning: failed to unseal state: %v", err)
+			} else if sealedIdx > 0 && sealedDigest != nil {
+				startIdx = sealedIdx + 1
+				prevDigest = sealedDigest
+				logDev("Loaded sealed state: idx=%d", sealedIdx)
+			}
+		}
+	}
+
+	// If still no state (no sealed state or fresh start), start from genesis
 	if startIdx == 1 || prevDigest == nil {
 		startIdx = 1
 		if len(genesisHash) == 0 {
@@ -376,6 +475,13 @@ func (kr *KeyRegistry) advanceAndVerifyChain(
 	localState.verifiedIdx = head.Idx
 	localState.verifiedDigest = head.Digest
 	localState.mu.Unlock()
+
+	// 6. Seal the verified state for persistence across restarts
+	if kr.PodId != "" {
+		if err := sealVerifiedState(kr.PodId, head.Idx, head.Digest); err != nil {
+			logDev("Warning: failed to seal verified state: %v", err)
+		}
+	}
 
 	logDev("Chain verification complete: verified up to idx=%d", head.Idx)
 	return nil

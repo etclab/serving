@@ -666,6 +666,11 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 		c.VolumeMounts = append(c.VolumeMounts, sgxDefaultQcnlVolumeMount)
 	}
 
+	// Add sealed state volume mount for EGO queue-proxy to persist hash chain state
+	if useSGXResources {
+		c.VolumeMounts = append(c.VolumeMounts, sealedStateVolumeMount)
+	}
+
 	return c, nil
 }
 
