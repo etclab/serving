@@ -139,13 +139,13 @@ func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
 	}
 
 	chainWatcher.mu.RLock()
-	startIdx := chainWatcher.verifiedIdx + 1
+	nextIdToVerify := chainWatcher.verifiedIdx + 1
 	prevDigest := chainWatcher.verifiedDigest
 	chainWatcher.mu.RUnlock()
 
 	// Initialize from genesis if needed
-	if startIdx == 1 || prevDigest == nil {
-		startIdx = 1
+	if nextIdToVerify == 1 || prevDigest == nil {
+		nextIdToVerify = 1
 		prevDigest = chainWatcher.genesisHash
 		if len(prevDigest) == 0 {
 			logDev("Warning: No genesis hash provided, using zero hash")
@@ -153,10 +153,11 @@ func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
 		}
 	}
 
-	logDev("Catching up from idx=%d to head.Idx=%d", startIdx, head.Idx)
+	logDev("Catching up from idx=%d to head.Idx=%d", nextIdToVerify, head.Idx)
 
 	// Verify entries from startIdx to head.Idx
-	for i := startIdx; i <= head.Idx; i++ {
+	// starting with nextIdxToVerify verify upto <= head.Idx
+	for i := nextIdToVerify; i <= head.Idx; i++ {
 		entry, err := kr.getEntry(ctx, HashChainEntryPrefix+strconv.FormatUint(i, 10))
 		if err != nil {
 			return 0, fmt.Errorf("failed to fetch entry %d: %w", i, err)
