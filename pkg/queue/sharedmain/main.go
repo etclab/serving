@@ -540,6 +540,27 @@ func parseEd25519PublicKey(pemData []byte) (ed25519.PublicKey, error) {
 	return edPub, nil
 }
 
+func startHashChainWatcher(d *Defaults, logger *zap.SugaredLogger) {
+	logDev := mutil.LogWithPrefix("dev - startHashChainWatcher")
+
+	// Decode genesis hash for the watcher
+	var genesisHashBytes []byte
+	if len(d.Env.GenesisHash) > 0 {
+		var err error
+		genesisHashBytes, err = hex.DecodeString(string(bytes.TrimSpace(d.Env.GenesisHash)))
+		if err != nil {
+			logger.Warnw("Failed to decode genesis hash for watcher", zap.Error(err))
+		}
+	}
+
+	// Start the hash chain watcher
+	if err := d.KeyRegistry.StartHashChainWatcher(genesisHashBytes); err != nil {
+		logger.Warnw("Failed to start hash chain watcher", zap.Error(err))
+	} else {
+		logDev("Started hash chain watcher")
+	}
+}
+
 func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
 	logDev := mutil.LogWithPrefix("dev - publishEnclavePublicKey")
 
@@ -774,6 +795,9 @@ func Main(opts ...Option) error {
 	// once etcd is ready fetch the static function chains
 	<-d.KeyRegistry.IsEtcdReady
 	d.KeyRegistry.FetchStaticFunctionChains()
+
+	// start hash chain watcher to continuously verify chain integrity
+	startHashChainWatcher(&d, logger)
 
 	// publish enclave public key for this pod
 	publishEnclavePublicKey(&d, logger)

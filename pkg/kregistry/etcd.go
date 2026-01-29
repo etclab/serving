@@ -3,6 +3,7 @@ package kregistry
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
@@ -64,8 +65,10 @@ type KeyRegistry struct {
 	OverriddenServiceName string // for testing
 	ServiceName           string
 	// PodId is the unique id for the pod
-	PodId        string
-	KeyPair      *pre.KeyPair
+	PodId string
+	// EnclavePublicKey is this pod's own ed25519 public key for hash chain signatures
+	EnclavePublicKey ed25519.PublicKey
+	KeyPair          *pre.KeyPair
 	PublicParams *pre.PublicParams
 	// Crypto       SambaCrypto
 

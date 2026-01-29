@@ -69,18 +69,6 @@ const (
 	EnclavePublicKeySuffix = "/attested-publicKey"
 )
 
-// LocalVerifiedState tracks the last verified chain state (in-memory).
-// This allows incremental verification for multiple writes from the same pod.
-// State is lost on restart, requiring re-verification from genesis.
-type LocalVerifiedState struct {
-	mu             sync.RWMutex
-	verifiedIdx    uint64
-	verifiedDigest []byte
-}
-
-// Package-level local state for chain verification caching
-var localState = &LocalVerifiedState{}
-
 // VerifiedPublicKeyCache caches writer public keys that have been verified
 // (attestation + data signature). This avoids re-fetching and re-verifying
 // the same public key multiple times during chain verification.
@@ -163,7 +151,9 @@ func sealVerifiedState(podID, revisionID string, idx uint64, digest []byte) erro
 // unsealVerifiedState loads the verified state from sealed storage.
 // It finds the sealed file with the highest index for the given revision.
 // Returns (0, nil, nil) if no sealed state exists (fresh start).
-func unsealVerifiedState(podID, revisionID string) (uint64, []byte, error) {
+// Note: podID is kept for API symmetry with sealVerifiedState but not used,
+// as we search for sealed state from ANY pod for the given revision.
+func unsealVerifiedState(_ /* podID */, revisionID string) (uint64, []byte, error) {
 	logDev := mutil.LogWithPrefix("dev - unsealVerifiedState")
 
 	// Find all sealed files for this revision (any pod)
@@ -390,6 +380,12 @@ func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChai
 func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) (ed25519.PublicKey, error) {
 	logDev := mutil.LogWithPrefix("dev - getWriterPublicKey")
 
+	// If writerID is our own pod, return our local public key directly
+	if writerID == kr.PodId && kr.EnclavePublicKey != nil {
+		logDev("Using local public key for self (writerID %s)", writerID)
+		return kr.EnclavePublicKey, nil
+	}
+
 	// Check cache first
 	if cachedKey := verifiedPubKeyCache.Get(writerID); cachedKey != nil {
 		logDev("Using cached public key for writerID %s", writerID)
@@ -470,111 +466,6 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 	return pubKey, nil
 }
 
-// advanceAndVerifyChain verifies the hash chain from local verified state to the current head.
-// This is the core verification logic that ensures chain integrity before appending.
-func (kr *KeyRegistry) advanceAndVerifyChain(
-	ctx context.Context,
-	genesisHash []byte,
-	head *HashChainHead,
-) error {
-	logDev := mutil.LogWithPrefix("dev - advanceAndVerifyChain")
-
-	// 1. Check local state for incremental verification
-	localState.mu.RLock()
-	startIdx := localState.verifiedIdx + 1
-	prevDigest := localState.verifiedDigest
-	localState.mu.RUnlock()
-
-	// If no local state, try to load from sealed storage
-	if startIdx == 1 || prevDigest == nil {
-		if kr.PodId != "" && kr.FunctionId != "" {
-			sealedIdx, sealedDigest, err := unsealVerifiedState(kr.PodId, kr.FunctionId)
-			if err != nil {
-				logDev("Warning: failed to unseal state: %v", err)
-			} else if sealedIdx > 0 && sealedDigest != nil {
-				startIdx = sealedIdx + 1
-				prevDigest = sealedDigest
-				logDev("Loaded sealed state: idx=%d", sealedIdx)
-			}
-		}
-	}
-
-	// If still no state (no sealed state or fresh start), start from genesis
-	if startIdx == 1 || prevDigest == nil {
-		startIdx = 1
-		if len(genesisHash) == 0 {
-			logDev("Warning: No genesis hash provided, using zero hash")
-			prevDigest = make([]byte, 32)
-		} else {
-			prevDigest = genesisHash
-		}
-		logDev("Starting chain verification from genesis")
-	} else {
-		logDev("Starting incremental chain verification from idx=%d", startIdx)
-	}
-
-	// TODO: bulk fetch entries at once from startIdx <= head.Idx
-	// 2. Fetch and verify entries from startIdx to head.Idx
-	for i := startIdx; i <= head.Idx; i++ {
-		entryKey := HashChainEntryPrefix + strconv.FormatUint(i, 10)
-		entry, err := kr.getEntry(ctx, entryKey)
-		if err != nil {
-			return fmt.Errorf("failed to fetch entry %d: %w", i, err)
-		}
-
-		// Verify entry.PrevDigest matches our computed prevDigest
-		if !bytes.Equal(entry.PrevDigest, prevDigest) {
-			return fmt.Errorf("chain broken at idx %d: prev_digest mismatch (expected %x, got %x)",
-				i, prevDigest, entry.PrevDigest)
-		}
-
-		// Get writer's public key and verify entry signature
-		writerPubKey, err := kr.getWriterPublicKey(ctx, entry.WriterID)
-		if err != nil {
-			return fmt.Errorf("failed to get writer public key for %s: %w", entry.WriterID, err)
-		}
-		if err := verifyEntrySignature(entry, writerPubKey); err != nil {
-			return fmt.Errorf("entry verification failed at idx %d: %w", i, err)
-		}
-
-		// Compute new digest for next iteration
-		entrySignHash := computeEntrySignatureMessage(entry)
-		prevDigest = computeNewDigest(prevDigest, entrySignHash, entry)
-		logDev("Verified entry idx=%d, writer=%s", i, entry.WriterID)
-	}
-
-	// 3. Verify final digest matches head
-	if !bytes.Equal(prevDigest, head.Digest) {
-		return fmt.Errorf("chain verification failed: final digest mismatch (expected %x, got %x)",
-			prevDigest, head.Digest)
-	}
-
-	// 4. Verify head signature using head writer's public key
-	headWriterPubKey, err := kr.getWriterPublicKey(ctx, head.WriterID)
-	if err != nil {
-		return fmt.Errorf("failed to get head writer public key for %s: %w", head.WriterID, err)
-	}
-	if err := VerifyHeadSignature(head, headWriterPubKey); err != nil {
-		return fmt.Errorf("head signature verification failed: %w", err)
-	}
-
-	// 5. Update local state
-	localState.mu.Lock()
-	localState.verifiedIdx = head.Idx
-	localState.verifiedDigest = head.Digest
-	localState.mu.Unlock()
-
-	// 6. Seal the verified state for persistence across restarts
-	if kr.PodId != "" && kr.FunctionId != "" {
-		if err := sealVerifiedState(kr.PodId, kr.FunctionId, head.Idx, head.Digest); err != nil {
-			logDev("Warning: failed to seal verified state: %v", err)
-		}
-	}
-
-	logDev("Chain verification complete: verified up to idx=%d", head.Idx)
-	return nil
-}
-
 // executeHashChainTransaction atomically writes data, entry, and head to etcd
 func (kr *KeyRegistry) executeHashChainTransaction(
 	ctx context.Context,
@@ -603,11 +494,6 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 		return false, fmt.Errorf("failed to marshal head record: %w", err)
 	}
 
-	oldHeadBytes, err := json.Marshal(oldHead)
-	if err != nil {
-		return false, fmt.Errorf("failed to marshal old head record: %w", err)
-	}
-
 	entryKey := HashChainEntryPrefix + strconv.FormatUint(entry.Idx, 10)
 
 	var txnResp *clientv3.TxnResponse
@@ -626,7 +512,12 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 		).Commit()
 	} else {
 		// Subsequent write: check head hasn't changed
-		logDev("Executing subsequent write transaction (updating head)")
+		oldHeadBytes, err := json.Marshal(oldHead)
+		if err != nil {
+			return false, fmt.Errorf("failed to marshal old head record: %w", err)
+		}
+
+		logDev("Executing subsequent write transaction (updating head, modRev=%d)", headModRev)
 		txnResp, err = kr.Client().Txn(ctx).If(
 			clientv3.Compare(clientv3.Value(HashChainHeadKey), "=", string(oldHeadBytes)), // Old head value unchanged
 			clientv3.Compare(clientv3.ModRevision(HashChainHeadKey), "=", headModRev),     // Head unchanged
@@ -654,6 +545,8 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 
 // StoreEnclavePublicKeyWithHashChain stores an enclave public key with hash chain integrity.
 // The public key and attestation report are packed together as an AttestedPublicKey.
+// This function fully trusts the watcher's verified state - if the watcher hasn't started
+// or has no state yet, it returns an error to trigger a retry.
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	ctx context.Context,
 	podID string,
@@ -671,18 +564,16 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	dataKey := EnclaveKeysPrefix + podID + EnclavePublicKeySuffix
 	writerID := podID
 
-	// Get current head
-	head, headModRev, err := kr.GetHashChainHead(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get hash chain head: %w", err)
-	}
+	// Get watcher's verified state - we fully trust it
+	watcherIdx, watcherDigest, headModRev, oldHead := GetWatcherVerifiedState()
 
 	var idx uint64
 	var prevDigest []byte
 	isFirstWrite := false
 
-	if head == nil {
-		// First write: use genesis hash (no verification needed - nothing to verify yet)
+	if watcherIdx == 0 && watcherDigest == nil {
+		// Watcher has no state yet - could be first write or watcher not started
+		// For first write, use genesis hash
 		if len(genesisHash) == 0 {
 			logDev("Warning: No genesis hash provided for first write, using zero hash")
 			prevDigest = make([]byte, 32)
@@ -693,13 +584,10 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 		isFirstWrite = true
 		logDev("First write: using genesis hash as prev_digest")
 	} else {
-		// Advance local head to current head by verifying the full chain
-		if err := kr.advanceAndVerifyChain(ctx, genesisHash, head); err != nil {
-			return fmt.Errorf("chain verification failed (tampering detected): %w", err)
-		}
-		prevDigest = head.Digest
-		idx = head.Idx + 1
-		logDev("Chain verified, chaining from idx=%d", head.Idx)
+		// Use watcher's verified state - it continuously verifies the chain for us
+		prevDigest = watcherDigest
+		idx = watcherIdx + 1
+		logDev("Using watcher verified state, chaining from idx=%d", watcherIdx)
 	}
 
 	// Pack public key and attestation report together
@@ -756,7 +644,6 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	}
 
 	// Execute atomic transaction
-	oldHead := head
 	success, err := kr.executeHashChainTransaction(ctx, dataKey, dataRecord, entry, newHead, oldHead, headModRev, isFirstWrite)
 	if err != nil {
 		return err
