@@ -81,6 +81,33 @@ type LocalVerifiedState struct {
 // Package-level local state for chain verification caching
 var localState = &LocalVerifiedState{}
 
+// VerifiedPublicKeyCache caches writer public keys that have been verified
+// (attestation + data signature). This avoids re-fetching and re-verifying
+// the same public key multiple times during chain verification.
+type VerifiedPublicKeyCache struct {
+	mu   sync.RWMutex
+	keys map[string]ed25519.PublicKey // writerID -> verified public key
+}
+
+// Package-level cache for verified writer public keys
+var verifiedPubKeyCache = &VerifiedPublicKeyCache{
+	keys: make(map[string]ed25519.PublicKey),
+}
+
+// Get returns a cached public key for the given writerID, or nil if not cached
+func (c *VerifiedPublicKeyCache) Get(writerID string) ed25519.PublicKey {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.keys[writerID]
+}
+
+// Set caches a verified public key for the given writerID
+func (c *VerifiedPublicKeyCache) Set(writerID string, pubKey ed25519.PublicKey) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.keys[writerID] = pubKey
+}
+
 // Constants for sealed state storage
 const (
 	SealedStateDir = "/sealed-state"
@@ -352,6 +379,7 @@ func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChai
 
 // getWriterPublicKey retrieves a writer's public key from etcd and verifies its attestation.
 // The public key is stored in enclave-keys/<writerID>/attested-publicKey as an AttestedPublicKey.
+// Verified public keys are cached to avoid re-fetching and re-verifying.
 //
 // Trust chain:
 // 1. Verify attestation report (Intel's root of trust)
@@ -361,6 +389,12 @@ func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChai
 // 5. Use trusted public key for hash chain signature verification
 func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) (ed25519.PublicKey, error) {
 	logDev := mutil.LogWithPrefix("dev - getWriterPublicKey")
+
+	// Check cache first
+	if cachedKey := verifiedPubKeyCache.Get(writerID); cachedKey != nil {
+		logDev("Using cached public key for writerID %s", writerID)
+		return cachedKey, nil
+	}
 
 	dataKey := EnclaveKeysPrefix + writerID + EnclavePublicKeySuffix
 	resp, err := kr.Client().Get(ctx, dataKey)
@@ -429,7 +463,10 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 
 	logDev("Data signature verified for writerID %s", writerID)
 
-	// 5. Return the trusted public key
+	// 5. Cache and return the trusted public key
+	verifiedPubKeyCache.Set(writerID, pubKey)
+	logDev("Cached verified public key for writerID %s", writerID)
+
 	return pubKey, nil
 }
 
@@ -512,7 +549,6 @@ func (kr *KeyRegistry) advanceAndVerifyChain(
 			prevDigest, head.Digest)
 	}
 
-	// TODO: cache writer public keys to avoid repeated fetches
 	// 4. Verify head signature using head writer's public key
 	headWriterPubKey, err := kr.getWriterPublicKey(ctx, head.WriterID)
 	if err != nil {
