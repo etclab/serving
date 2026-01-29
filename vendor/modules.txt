@@ -277,6 +277,7 @@ github.com/docker/docker-credential-helpers/credentials
 ## explicit; go 1.21
 github.com/edgelesssys/ego/attestation
 github.com/edgelesssys/ego/attestation/tcbstatus
+github.com/edgelesssys/ego/ecrypto
 github.com/edgelesssys/ego/enclave
 github.com/edgelesssys/ego/internal/attestation
 # github.com/emicklei/go-restful/v3 v3.12.1
