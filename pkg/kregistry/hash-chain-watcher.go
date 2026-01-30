@@ -7,11 +7,15 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 
+	"github.com/etclab/pre"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"knative.dev/serving/pkg/mutil"
+	"knative.dev/serving/pkg/samba"
 )
 
 // ============================================================
@@ -180,6 +184,12 @@ func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
 			chainWatcher.verifiedDataRecords[entry.DataKey] = dataRecord
 		}
 		chainWatcher.mu.Unlock()
+
+		// Process leader keys from catch-up entries (non-blocking)
+		// This is independent of chain validation and can run in a separate goroutine
+		if dataRecord != nil {
+			go kr.processVerifiedLeaderKeys(entry.DataKey, dataRecord, entry.WriterID)
+		}
 	}
 
 	// Verify head signature and digest match
@@ -418,6 +428,12 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 	}
 
 	logDev("Verified entry idx=%d with head, modRev=%d", entry.Idx, headModRev)
+
+	// Process verified entries for leader public keys and params (non-blocking)
+	// This is independent of chain validation and can run in a separate goroutine
+	// These are stored at: leaders/<service>/<function>/publicKey/<pod-id>
+	//                  or: leaders/<service>/<function>/publicParams/<pod-id>
+	go kr.processVerifiedLeaderKeys(entry.DataKey, dataRecord, entry.WriterID)
 }
 
 // fetchDataAndHead fetches both the data record and head in a single etcd transaction.
@@ -470,4 +486,146 @@ func IsChainVerified(idx uint64) bool {
 // genesisHash is returned so writers can use it for first write (to match verifier logic).
 func GetWatcherVerifiedState() (uint64, []byte, []byte, int64, *HashChainHead) {
 	return chainWatcher.GetVerifiedState()
+}
+
+// LeaderKeyInfo contains parsed information from a leader key data key
+type LeaderKeyInfo struct {
+	ServiceName string
+	FunctionID  string
+	KeyType     string // "publicKey" or "publicParams"
+	LeaderPodID string
+}
+
+// parseLeaderKeyPath parses a leader key data key path.
+// Expected format: leaders/<service>/<function>/publicKey/<pod-id>
+//              or: leaders/<service>/<function>/publicParams/<pod-id>
+// Returns nil if the path doesn't match the expected format.
+func parseLeaderKeyPath(dataKey string) *LeaderKeyInfo {
+	if !strings.HasPrefix(dataKey, "leaders/") {
+		return nil
+	}
+
+	// Remove "leaders/" prefix
+	rest := strings.TrimPrefix(dataKey, "leaders/")
+
+	// Split the remaining path: <service>/<function>/<keyType>/<pod-id>
+	parts := strings.Split(rest, "/")
+	if len(parts) != 4 {
+		return nil
+	}
+
+	keyType := parts[2]
+	if keyType != "publicKey" && keyType != "publicParams" {
+		return nil
+	}
+
+	return &LeaderKeyInfo{
+		ServiceName: parts[0],
+		FunctionID:  parts[1],
+		KeyType:     keyType,
+		LeaderPodID: parts[3],
+	}
+}
+
+// processVerifiedLeaderKeys checks if a verified entry contains leader public keys or params
+// and processes them. This replaces the old ListWatchLeaderKeys approach.
+// After verification succeeds in handleEntryEvent(), this method is called to process
+// entries that match the leader key pattern.
+//
+// For publicKey entries: deserialize and store via SafeWriteMemLeaderPublicKey
+// For publicParams entries: deserialize, store, generate member keypair, and store member's public key
+func (kr *KeyRegistry) processVerifiedLeaderKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	logDev := mutil.LogWithPrefix("dev - processVerifiedLeaderKeys")
+
+	// Parse the data key to see if it's a leader key
+	keyInfo := parseLeaderKeyPath(dataKey)
+	if keyInfo == nil {
+		// Not a leader key entry, nothing to do
+		return
+	}
+
+	logDev("=== RECEIVED VERIFIED LEADER KEY FROM HASH CHAIN ===")
+	logDev("  DataKey: %s", dataKey)
+	logDev("  ServiceName: %s", keyInfo.ServiceName)
+	logDev("  FunctionID: %s", keyInfo.FunctionID)
+	logDev("  KeyType: %s", keyInfo.KeyType)
+	logDev("  LeaderPodID: %s", keyInfo.LeaderPodID)
+	logDev("  WriterID: %s", writerID)
+	logDev("  PayloadSize: %d bytes", len(dataRecord.Payload))
+
+	leaderPodId := keyInfo.LeaderPodID
+
+	// Handle publicKey entries
+	if keyInfo.KeyType == "publicKey" {
+		pks := new(samba.PublicKeySerialized)
+		err := json.Unmarshal(dataRecord.Payload, pks)
+		if err != nil {
+			logDev("Failed to decode leader public key: %v", err)
+			return
+		}
+
+		publicKey, err := pks.DeSerialize()
+		if err != nil {
+			logDev("Failed to deserialize leader public key: %v", err)
+			return
+		}
+
+		kr.SafeWriteMemLeaderPublicKey(leaderPodId, publicKey)
+		logDev("Stored leader public key for leaderPodId=%s (from hash chain)", leaderPodId)
+	}
+
+	// Handle publicParams entries
+	if keyInfo.KeyType == "publicParams" {
+		pps := new(samba.PublicParamsSerialized)
+		err := json.Unmarshal(dataRecord.Payload, pps)
+		if err != nil {
+			logDev("Failed to decode leader public params: %v", err)
+			return
+		}
+
+		publicParams, err := pps.DeSerialize()
+		if err != nil {
+			logDev("Failed to deserialize leader public params: %v", err)
+			return
+		}
+
+		kr.SafeWriteMemLeaderPublicParams(leaderPodId, publicParams)
+		logDev("Stored leader public params for leaderPodId=%s (from hash chain)", leaderPodId)
+
+		// Generate member keypair using leader's public params
+		// First try to read a static keypair from environment variable
+		var keyPair *pre.KeyPair
+		memberKeyPairString := os.Getenv("MEMBER_KP")
+		if memberKeyPairString != "" {
+			keyPair, err = samba.ParseKeyPair([]byte(memberKeyPairString))
+			if err != nil {
+				logDev("Failed to parse static member key pair: %v", err)
+			} else {
+				logDev("Parsed static member key pair successfully")
+			}
+		}
+
+		if keyPair == nil {
+			logDev("Generating new key pair for member using leader's public params")
+			keyPair = pre.KeyGen(publicParams)
+		}
+
+		kr.SafeWriteMemKeyPair(leaderPodId, keyPair)
+		logDev("Created key pair for member %s", kr.PodId)
+
+		// Store member's public key under members/<leader-pod-id>/publicKey/<member-pod-id>
+		// Use hash chain storage for tamper-evident verification
+		// Must serialize curve points properly before JSON marshaling
+		memPubKeyLabel := "members/" + leaderPodId + "/publicKey/" + kr.PodId
+		memberPks := new(samba.PublicKeySerialized)
+		memberPks.Serialize(keyPair.PK)
+		err = kr.StoreWithHashChainAndRetry(memPubKeyLabel, memberPks, 5)
+		if err != nil {
+			logDev("Failed to store member public key with hash chain: %v", err)
+			return
+		}
+		logDev("Stored member public key with hash chain at %s", memPubKeyLabel)
+	}
+
+	logDev("=== END LEADER KEY PROCESSING ===")
 }

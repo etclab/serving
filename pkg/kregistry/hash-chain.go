@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -576,8 +577,15 @@ func (kr *KeyRegistry) StoreWithHashChain(
 	return nil
 }
 
+// addJitter adds random jitter to a duration to prevent thundering herd.
+// Returns duration + random(0, duration/2), i.e., up to 50% additional delay.
+func addJitter(d time.Duration) time.Duration {
+	jitter := time.Duration(rand.Int63n(int64(d / 2)))
+	return d + jitter
+}
+
 // StoreWithHashChainAndRetry stores data in the hash chain with automatic retry on conflicts.
-// Implements exponential backoff (100ms initial, 5s max).
+// Implements exponential backoff with jitter (100ms initial, 5s max).
 // Returns immediately on write-once violations (key already exists).
 //
 // Parameters:
@@ -608,8 +616,9 @@ func (kr *KeyRegistry) StoreWithHashChainAndRetry(
 
 		// Check if it's a conflict error (retryable)
 		if strings.Contains(err.Error(), "transaction conflict") {
-			logDev("Transaction conflict on attempt %d, retrying after %v", attempt+1, backoff)
-			time.Sleep(backoff)
+			sleepDuration := addJitter(backoff)
+			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter)", attempt+1, sleepDuration)
+			time.Sleep(sleepDuration)
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 			continue
 		}
@@ -817,6 +826,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 }
 
 // StoreEnclavePublicKeyWithRetry stores an enclave public key with hash chain, retrying on conflicts.
+// Implements exponential backoff with jitter (100ms initial, 5s max).
 // The public key and attestation report are packed together as an AttestedPublicKey.
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 	podID string,
@@ -843,8 +853,9 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 
 		// Check if it's a conflict error (retryable)
 		if strings.Contains(err.Error(), "transaction conflict") {
-			logDev("Transaction conflict on attempt %d, retrying after %v", attempt+1, backoff)
-			time.Sleep(backoff)
+			sleepDuration := addJitter(backoff)
+			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter)", attempt+1, sleepDuration)
+			time.Sleep(sleepDuration)
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 			continue
 		}

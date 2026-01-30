@@ -275,6 +275,7 @@ func TryAcquireLease(d *Defaults) {
 
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnStartedLeading")
 
+				// TODO: here
 				// watch for member's public keys at prefix: members/<leader-pod-id>/publicKey/
 				memberPublicKeyDir := "members/" + myId + "/publicKey"
 				go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
@@ -317,16 +318,36 @@ func TryAcquireLease(d *Defaults) {
 				lPublicKeyLabel := "leaders/" + d.KeyRegistry.ServiceName +
 					"/" + d.KeyRegistry.FunctionId + "/publicKey/" + myId
 
-				err = d.KeyRegistry.StorePublicKey(lPublicKeyLabel, keyPair.PK)
+				// Old plain storage methods (commented out - replaced with hash chain storage)
+				// err = d.KeyRegistry.StorePublicKey(lPublicKeyLabel, keyPair.PK)
+				// if err != nil {
+				// 	logDev("Error storing public key in KeyRegistry: %v", err)
+				// }
+				// err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, pp)
+				// if err != nil {
+				// 	logDev("Error storing public params in KeyRegistry: %v", err)
+				// }
+
+				// Store leader public key in hash chain for tamper-evident verification
+				// Must serialize curve points properly before JSON marshaling
+				pks := new(samba.PublicKeySerialized)
+				pks.Serialize(keyPair.PK)
+				err = d.KeyRegistry.StoreWithHashChainAndRetry(lPublicKeyLabel, pks, 5)
 				if err != nil {
-					// TODO: log the error and maybe retry later
-					logDev("Error storing public key in KeyRegistry: %v", err)
+					logDev("Error storing public key with hash chain: %v", err)
+				} else {
+					logDev("Successfully stored public key with hash chain: %s", lPublicKeyLabel)
 				}
 
-				err = d.KeyRegistry.StorePublicParams(lPublicParamsLabel, pp)
+				// Store leader public params in hash chain for tamper-evident verification
+				// Must serialize curve points properly before JSON marshaling
+				pps := new(samba.PublicParamsSerialized)
+				pps.Serialize(pp)
+				err = d.KeyRegistry.StoreWithHashChainAndRetry(lPublicParamsLabel, pps, 5)
 				if err != nil {
-					// TODO: log the error and maybe retry later
-					logDev("Error storing public params in KeyRegistry: %v", err)
+					logDev("Error storing public params with hash chain: %v", err)
+				} else {
+					logDev("Successfully stored public params with hash chain: %s", lPublicParamsLabel)
 				}
 			},
 			OnStoppedLeading: func() {
@@ -355,6 +376,7 @@ func TryAcquireLease(d *Defaults) {
 				// we're notified when new leader elected
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnNewLeader")
 
+				// TODO: here
 				go d.KeyRegistry.ListWatchEveryLeaderPublicKeys("leaders/")
 
 				// identity is pod id
@@ -368,21 +390,24 @@ func TryAcquireLease(d *Defaults) {
 				logDev("new leader elected: %s", leaderIdentity)
 				d.KeyRegistry.SafeWriteMemLeaderId(leaderIdentity)
 
+				// TODO: here
 				// watch for re-encryption keys at exact prefix:
 				// members/<leader-pod-id>/reEncryptionKey/<my-pod-id>
 				reEncKeyDir := "members/" + leaderIdentity + "/reEncryptionKey/" + myId
 				go d.KeyRegistry.ListWatchReEncryptionKey(reEncKeyDir, leaderIdentity)
 
-				myFunctionRevision := d.KeyRegistry.FunctionId
-				myService := d.KeyRegistry.ServiceName
+				// Old approach variables (commented out - now using hash chain watcher)
+				// myFunctionRevision := d.KeyRegistry.FunctionId
+				// myService := d.KeyRegistry.ServiceName
 				// leader publicKey and publicParams are at:
 				// leaders/<service-name>/<function-revision>/publicKey/<leader-pod-id>
 				// leaders/<service-name>/<function-revision>/publicParams/<leader-pod-id>
-				leaderPublicPrefix := "leaders/" + myService + "/" + myFunctionRevision + "/public"
+				// leaderPublicPrefix := "leaders/" + myService + "/" + myFunctionRevision + "/public"
 
-				// implements the List & Watch pattern
-				// https://www.mgasch.com/2021/01/listwatch-part-1/#the-list--watch-pattern
-				go d.KeyRegistry.ListWatchLeaderKeys(leaderPublicPrefix, leaderIdentity)
+				// Old approach: explicitly watch leader keys (replaced by hash chain watcher)
+				// The hash chain watcher now receives leader public keys/params as entries
+				// at lambada/audit/entry/<idx> and processes them in handleEntryEvent()
+				// go d.KeyRegistry.ListWatchLeaderKeys(leaderPublicPrefix, leaderIdentity)
 			},
 		},
 	})
