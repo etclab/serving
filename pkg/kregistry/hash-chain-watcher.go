@@ -43,12 +43,13 @@ var chainWatcher = &HashChainWatcher{
 }
 
 // GetVerifiedState returns the current verified state from the watcher.
-// Returns (idx, digest, headModRev, verifiedHead) for use by writers.
+// Returns (idx, digest, genesisHash, headModRev, verifiedHead) for use by writers.
 // The verifiedHead returned is the head at the current verifiedIdx.
-func (w *HashChainWatcher) GetVerifiedState() (uint64, []byte, int64, *HashChainHead) {
+// genesisHash is returned so writers can use it for first write (to match verifier logic).
+func (w *HashChainWatcher) GetVerifiedState() (uint64, []byte, []byte, int64, *HashChainHead) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return w.verifiedIdx, w.verifiedDigest, w.headModRev, w.verifiedHeads[w.verifiedIdx]
+	return w.verifiedIdx, w.verifiedDigest, w.genesisHash, w.headModRev, w.verifiedHeads[w.verifiedIdx]
 }
 
 // StartHashChainWatcher starts the hash chain verification watcher.
@@ -465,7 +466,8 @@ func IsChainVerified(idx uint64) bool {
 }
 
 // GetWatcherVerifiedState returns the current verified state from the watcher.
-// Returns (idx, digest, headModRev, verifiedHead) or (0, nil, 0, nil) if no state is verified yet.
-func GetWatcherVerifiedState() (uint64, []byte, int64, *HashChainHead) {
+// Returns (idx, digest, genesisHash, headModRev, verifiedHead) or (0, nil, nil, 0, nil) if no state is verified yet.
+// genesisHash is returned so writers can use it for first write (to match verifier logic).
+func GetWatcherVerifiedState() (uint64, []byte, []byte, int64, *HashChainHead) {
 	return chainWatcher.GetVerifiedState()
 }

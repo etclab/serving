@@ -565,35 +565,27 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
 	logDev := mutil.LogWithPrefix("dev - publishEnclavePublicKey")
 
 	// Store enclave public key with hash chain for tamper-evident audit log
-	if d.Env.EnclavePublicKey != nil && d.Env.EnclavePrivateKey != nil {
-		var genesisHashBytes []byte
-		if len(d.Env.GenesisHash) > 0 {
-			var err error
-			genesisHashBytes, err = hex.DecodeString(string(bytes.TrimSpace(d.Env.GenesisHash)))
-			if err != nil {
-				logger.Warnw("Failed to decode genesis hash, skipping hash chain storage", zap.Error(err))
-			}
-		}
-
-		if len(genesisHashBytes) > 0 || len(d.Env.GenesisHash) == 0 {
-			err := d.KeyRegistry.StoreEnclavePublicKeyWithRetry(
-				d.Env.ServingPod,
-				d.Env.EnclavePublicKey,
-				d.Env.EnclavePrivateKey,
-				d.Env.EnclaveAttestationReport, // attestation report binding podId and public key to enclave
-				genesisHashBytes,
-				5, // maxRetries
-			)
-			if err != nil {
-				logger.Warnw("Failed to store enclave public key with hash chain", zap.Error(err))
-			} else {
-				logger.Warnw("Successfully stored enclave public key with hash chain",
-					zap.String("podID", d.Env.ServingPod),
-					zap.Int("attestationBytes", len(d.Env.EnclaveAttestationReport)))
-			}
-		}
-	} else {
+	if d.KeyRegistry.EnclavePublicKey == nil || d.KeyRegistry.EnclavePrivateKey == nil {
 		logDev("Enclave keypair not available, skipping hash chain storage")
+		return
+	}
+
+	// Construct the payload with public key and attestation report
+	payload := &kregistry.AttestedPublicKey{
+		PublicKey:   d.KeyRegistry.EnclavePublicKey,
+		Attestation: d.Env.EnclaveAttestationReport,
+	}
+
+	// Construct the data key
+	dataKey := kregistry.EnclaveKeysPrefix + d.KeyRegistry.PodId + kregistry.EnclavePublicKeySuffix
+
+	err := d.KeyRegistry.StoreWithHashChainAndRetry(dataKey, payload, 5)
+	if err != nil {
+		logger.Warnw("Failed to store enclave public key with hash chain", zap.Error(err))
+	} else {
+		logger.Infow("Successfully stored enclave public key with hash chain",
+			zap.String("podID", d.KeyRegistry.PodId),
+			zap.Int("attestationBytes", len(d.Env.EnclaveAttestationReport)))
 	}
 }
 
@@ -876,6 +868,8 @@ func initKeyRegistry() Option {
 		d.KeyRegistry.FunctionId = d.KeyRegistry.GetFunctionId(d.Env.ServingRevision)
 		d.KeyRegistry.ServiceName = d.KeyRegistry.GetServiceName(d.Env.ServingService)
 		d.KeyRegistry.PodId = d.Env.ServingPod
+		d.KeyRegistry.EnclavePublicKey = d.Env.EnclavePublicKey
+		d.KeyRegistry.EnclavePrivateKey = d.Env.EnclavePrivateKey
 	}
 }
 

@@ -466,6 +466,172 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 	return pubKey, nil
 }
 
+// ============================================================
+// Generic Hash Chain Storage Functions
+// ============================================================
+
+// StoreWithHashChain stores arbitrary data in the hash chain with tamper-evident integrity.
+// This is a generic function that can store any payload type in the hash chain.
+//
+// Parameters:
+//   - ctx: context for cancellation
+//   - dataKey: the etcd key to store the data at
+//   - payload: any Go type (will be JSON marshaled internally)
+//
+// The function uses kr.PodId as the writerID and kr.EnclavePrivateKey for signing.
+// The function trusts the watcher's verified state. For first write (when watcher has no state),
+// it uses a zero hash as prevDigest, consistent with the watcher's fallback behavior.
+func (kr *KeyRegistry) StoreWithHashChain(
+	ctx context.Context,
+	dataKey string,
+	payload interface{},
+) error {
+	logDev := mutil.LogWithPrefix("dev - StoreWithHashChain")
+
+	if kr.EnclavePrivateKey == nil {
+		return fmt.Errorf("enclave private key is nil")
+	}
+
+	writerID := kr.PodId
+	signingKey := kr.EnclavePrivateKey
+
+	// JSON marshal the payload
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Get watcher's verified state - includes genesis hash for first write
+	watcherIdx, watcherDigest, genesisHash, headModRev, oldHead := GetWatcherVerifiedState()
+
+	idx := watcherIdx + 1
+	prevDigest := watcherDigest
+	isFirstWrite := watcherIdx == 0
+
+	if isFirstWrite {
+		// Mirror the verifier's logic: use genesis hash if available, else zero hash
+		if len(genesisHash) > 0 {
+			prevDigest = genesisHash
+		} else {
+			prevDigest = make([]byte, 32)
+		}
+	}
+
+	logDev("Chaining from idx=%d, isFirstWrite=%v, usingGenesis=%v", watcherIdx, isFirstWrite, len(genesisHash) > 0)
+
+	// Compute value hash (hash of the payload)
+	payloadHash := sha256.Sum256(payloadBytes)
+
+	// Create and sign data record
+	dataSignMsg := computeDataSignatureMessage(dataKey, idx, payloadHash[:], writerID)
+	dataSig := ed25519.Sign(signingKey, dataSignMsg)
+
+	dataRecord := &HashChainDataRecord{
+		Idx:      idx,
+		WriterID: writerID,
+		Payload:  payloadBytes,
+		DataSig:  dataSig,
+	}
+
+	// Create entry record (without signature first to compute signature message)
+	entry := &HashChainEntry{
+		Idx:        idx,
+		PrevDigest: prevDigest,
+		OpType:     "PUT",
+		DataKey:    dataKey,
+		ValueHash:  payloadHash[:],
+		WriterID:   writerID,
+	}
+
+	// Sign the entry
+	entrySignMsg := computeEntrySignatureMessage(entry)
+	entry.EntrySig = ed25519.Sign(signingKey, entrySignMsg)
+
+	// Compute new digest
+	entrySignMsgHash := entrySignMsg
+	newDigest := computeNewDigest(prevDigest, entrySignMsgHash, entry)
+
+	// Create and sign new head
+	headSignMsg := computeHeadSignatureMessage(idx, writerID, newDigest)
+	headSig := ed25519.Sign(signingKey, headSignMsg)
+
+	newHead := &HashChainHead{
+		Idx:      idx,
+		Digest:   newDigest,
+		WriterID: writerID,
+		HeadSig:  headSig,
+	}
+
+	// Execute atomic transaction
+	success, err := kr.executeHashChainTransaction(ctx, dataKey, dataRecord, entry, newHead, oldHead, headModRev, isFirstWrite)
+	if err != nil {
+		return err
+	}
+
+	if !success {
+		return fmt.Errorf("transaction conflict: head or data key changed")
+	}
+
+	logDev("Successfully stored data with hash chain: dataKey=%s, idx=%d", dataKey, idx)
+	return nil
+}
+
+// StoreWithHashChainAndRetry stores data in the hash chain with automatic retry on conflicts.
+// Implements exponential backoff (100ms initial, 5s max).
+// Returns immediately on write-once violations (key already exists).
+//
+// Parameters:
+//   - dataKey: the etcd key to store the data at
+//   - payload: any Go type (will be JSON marshaled internally)
+//   - maxRetries: maximum number of retry attempts
+//
+// The function uses kr.PodId as the writerID and kr.EnclavePrivateKey for signing.
+func (kr *KeyRegistry) StoreWithHashChainAndRetry(
+	dataKey string,
+	payload interface{},
+	maxRetries int,
+) error {
+	logDev := mutil.LogWithPrefix("dev - StoreWithHashChainAndRetry")
+
+	backoff := 100 * time.Millisecond
+	maxBackoff := 5 * time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := kr.StoreWithHashChain(ctx, dataKey, payload)
+		cancel()
+
+		if err == nil {
+			logDev("Successfully stored data on attempt %d", attempt+1)
+			return nil
+		}
+
+		// Check if it's a conflict error (retryable)
+		if strings.Contains(err.Error(), "transaction conflict") {
+			logDev("Transaction conflict on attempt %d, retrying after %v", attempt+1, backoff)
+			time.Sleep(backoff)
+			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
+			continue
+		}
+
+		// Check if key already exists (write-once violation - not retryable)
+		if strings.Contains(err.Error(), "already exists") {
+			logDev("Key already exists, write-once constraint enforced")
+			return err
+		}
+
+		// Other errors
+		logDev("Error on attempt %d: %v", attempt+1, err)
+		return err
+	}
+
+	return fmt.Errorf("failed to store data after %d attempts", maxRetries)
+}
+
+// ============================================================
+// Hash Chain Transaction Execution
+// ============================================================
+
 // executeHashChainTransaction atomically writes data, entry, and head to etcd
 func (kr *KeyRegistry) executeHashChainTransaction(
 	ctx context.Context,
@@ -564,31 +730,24 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	dataKey := EnclaveKeysPrefix + podID + EnclavePublicKeySuffix
 	writerID := podID
 
-	// Get watcher's verified state - we fully trust it
-	watcherIdx, watcherDigest, headModRev, oldHead := GetWatcherVerifiedState()
+	// Get watcher's verified state (ignore watcher's genesis hash, use parameter instead)
+	watcherIdx, watcherDigest, _, headModRev, oldHead := GetWatcherVerifiedState()
 
-	var idx uint64
-	var prevDigest []byte
-	isFirstWrite := false
+	idx := watcherIdx + 1
+	prevDigest := watcherDigest
+	isFirstWrite := watcherIdx == 0
 
-	if watcherIdx == 0 && watcherDigest == nil {
-		// Watcher has no state yet - could be first write or watcher not started
-		// For first write, use genesis hash
-		if len(genesisHash) == 0 {
+	if isFirstWrite {
+		// Use genesis hash parameter if available, else zero hash
+		if len(genesisHash) > 0 {
+			prevDigest = genesisHash
+		} else {
 			logDev("Warning: No genesis hash provided for first write, using zero hash")
 			prevDigest = make([]byte, 32)
-		} else {
-			prevDigest = genesisHash
 		}
-		idx = 1
-		isFirstWrite = true
-		logDev("First write: using genesis hash as prev_digest")
-	} else {
-		// Use watcher's verified state - it continuously verifies the chain for us
-		prevDigest = watcherDigest
-		idx = watcherIdx + 1
-		logDev("Using watcher verified state, chaining from idx=%d", watcherIdx)
 	}
+
+	logDev("Chaining from idx=%d, isFirstWrite=%v", watcherIdx, isFirstWrite)
 
 	// Pack public key and attestation report together
 	attestedKey := &AttestedPublicKey{

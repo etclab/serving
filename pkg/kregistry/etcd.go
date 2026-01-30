@@ -68,6 +68,8 @@ type KeyRegistry struct {
 	PodId string
 	// EnclavePublicKey is this pod's own ed25519 public key for hash chain signatures
 	EnclavePublicKey ed25519.PublicKey
+	// EnclavePrivateKey is this pod's own ed25519 private key for signing hash chain records
+	EnclavePrivateKey ed25519.PrivateKey
 	KeyPair          *pre.KeyPair
 	PublicParams     *pre.PublicParams
 	// Crypto       SambaCrypto
