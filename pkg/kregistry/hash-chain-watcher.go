@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -233,6 +234,13 @@ type VerifyChainResult struct {
 // This is a shared helper used by both catchUpHashChain and StoreEnclavePublicKeyWithHashChainVerified.
 // It does NOT update watcher state or process keys - callers handle that.
 //
+// This implementation uses batch fetching and parallel verification for performance:
+// - Phase 1: Batch-fetch all entries in a single range query
+// - Phase 2: Pre-fetch all unique writer public keys (warms cache)
+// - Phase 3: Batch-fetch all data records in a single transaction
+// - Phase 4: Verify entries sequentially (chain dependency), but with parallel verification per entry
+// - Phase 5: Verify head signature and digest match
+//
 // Parameters:
 //   - startIdx: the first entry index to verify (1 for full verification from genesis)
 //   - startDigest: the digest before startIdx (genesis hash if startIdx=1)
@@ -267,35 +275,80 @@ func (kr *KeyRegistry) VerifyChainUpToHead(ctx context.Context, startIdx uint64,
 
 	logDev("Verifying chain from idx=%d to head.Idx=%d", startIdx, head.Idx)
 
-	entries := make(map[uint64]*HashChainEntry)
-	dataRecords := make(map[string]*HashChainDataRecord)
+	// Phase 1: Batch-fetch all entries
+	entries, err := kr.batchFetchEntries(ctx, startIdx, head.Idx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch fetch entries: %w", err)
+	}
 
-	// Verify entries from startIdx to head.Idx
-	for i := startIdx; i <= head.Idx; i++ {
-		entry, err := kr.getEntry(ctx, HashChainEntryPrefix+strconv.FormatUint(i, 10))
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch entry %d: %w", i, err)
+	if len(entries) == 0 {
+		logDev("No entries to verify")
+		return &VerifyChainResult{
+			Head:           head,
+			HeadModRev:     headModRev,
+			VerifiedIdx:    startIdx - 1,
+			VerifiedDigest: prevDigest,
+			Entries:        make(map[uint64]*HashChainEntry),
+			DataRecords:    make(map[string]*HashChainDataRecord),
+		}, nil
+	}
+
+	// Collect data keys and unique writer IDs
+	dataKeys := make([]string, len(entries))
+	writerIDSet := make(map[string]struct{})
+	for i, entry := range entries {
+		dataKeys[i] = entry.DataKey
+		writerIDSet[entry.WriterID] = struct{}{}
+	}
+
+	// Phase 2: Pre-fetch writer public keys (warms cache)
+	uniqueWriterIDs := make([]string, 0, len(writerIDSet))
+	for id := range writerIDSet {
+		uniqueWriterIDs = append(uniqueWriterIDs, id)
+	}
+	if err := kr.prefetchWriterPublicKeys(ctx, uniqueWriterIDs); err != nil {
+		return nil, err
+	}
+
+	// Phase 3: Batch-fetch all data records
+	dataRecordsMap, err := kr.batchFetchDataRecords(ctx, dataKeys)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch fetch data records: %w", err)
+	}
+
+	// Phase 4: Verify entries sequentially (chain dependency), but with parallel verification per entry
+	entriesResult := make(map[uint64]*HashChainEntry, len(entries))
+	dataRecordsResult := make(map[string]*HashChainDataRecord, len(entries))
+
+	for _, entry := range entries {
+		dataRecord := dataRecordsMap[entry.DataKey]
+		if dataRecord == nil {
+			return nil, fmt.Errorf("data record not found for entry %d", entry.Idx)
 		}
 
-		dataRecord, err := kr.verifyAndProcessEntryWithData(ctx, entry, prevDigest)
+		// Get writer's public key (from cache, warmed in Phase 2)
+		writerPubKey, err := kr.getWriterPublicKey(ctx, entry.WriterID)
 		if err != nil {
+			return nil, fmt.Errorf("failed to get writer public key for %s: %w", entry.WriterID, err)
+		}
+
+		// Parallel verification of entry + data
+		if err := verifyEntryAndDataParallel(entry, dataRecord, writerPubKey, prevDigest); err != nil {
 			return nil, err
 		}
 
-		// Compute new digest
+		// Compute new digest (must be sequential - needed for next entry's verification)
 		entrySignHash := computeEntrySignatureMessage(entry)
 		prevDigest = computeNewDigest(prevDigest, entrySignHash, entry)
 
 		// Store in result maps
-		entries[entry.Idx] = entry
-		if dataRecord != nil {
-			dataRecords[entry.DataKey] = dataRecord
-		}
+		entriesResult[entry.Idx] = entry
+		dataRecordsResult[entry.DataKey] = dataRecord
 
-		logDev("Verified entry idx=%d, dataKey=%s", i, entry.DataKey)
+		logDev("Verified entry idx=%d, dataKey=%s", entry.Idx, entry.DataKey)
 	}
 
-	// Verify head signature and digest match
+	// Phase 5: Verify head signature and digest match
 	if err := kr.verifyHead(ctx, head, prevDigest); err != nil {
 		return nil, err
 	}
@@ -306,8 +359,8 @@ func (kr *KeyRegistry) VerifyChainUpToHead(ctx context.Context, startIdx uint64,
 		HeadModRev:     headModRev,
 		VerifiedIdx:    head.Idx,
 		VerifiedDigest: prevDigest,
-		Entries:        entries,
-		DataRecords:    dataRecords,
+		Entries:        entriesResult,
+		DataRecords:    dataRecordsResult,
 	}, nil
 }
 
@@ -451,10 +504,149 @@ func (kr *KeyRegistry) verifyHead(ctx context.Context, head *HashChainHead, expe
 	return VerifyHeadSignature(head, headWriterPubKey)
 }
 
+// verifyEntryAndDataParallel verifies an entry and its data record in parallel.
+// This is the shared verification core used by both handleEntryEvent (watch path)
+// and VerifyChainUpToHead (catch-up path).
+//
+// Parameters:
+//   - entry: the hash chain entry to verify
+//   - dataRecord: the data record (already fetched)
+//   - writerPubKey: the verified public key of the writer
+//   - expectedPrevDigest: the expected prev_digest (chain link verification)
+//
+// Returns nil if verification succeeds, error otherwise.
+// NOTE: Does NOT verify head - caller handles that separately.
+func verifyEntryAndDataParallel(
+	entry *HashChainEntry,
+	dataRecord *HashChainDataRecord,
+	writerPubKey ed25519.PublicKey,
+	expectedPrevDigest []byte,
+) error {
+	errCh := make(chan error, 2)
+
+	// Goroutine 1: Verify entry (chain link + signature)
+	go func() {
+		if !bytes.Equal(entry.PrevDigest, expectedPrevDigest) {
+			errCh <- fmt.Errorf("chain broken at idx %d: prev_digest mismatch (expected %x, got %x)",
+				entry.Idx, expectedPrevDigest, entry.PrevDigest)
+			return
+		}
+		if err := verifyEntrySignature(entry, writerPubKey); err != nil {
+			errCh <- fmt.Errorf("entry signature verification failed at idx %d: %w", entry.Idx, err)
+			return
+		}
+		errCh <- nil
+	}()
+
+	// Goroutine 2: Verify data record
+	go func() {
+		payloadHash := sha256.Sum256(dataRecord.Payload)
+		if !bytes.Equal(payloadHash[:], entry.ValueHash) {
+			errCh <- fmt.Errorf("payload hash mismatch at idx %d (expected %x, got %x)",
+				entry.Idx, entry.ValueHash, payloadHash[:])
+			return
+		}
+		dataSignMsg := computeDataSignatureMessage(entry.DataKey, dataRecord.Idx, payloadHash[:], dataRecord.WriterID)
+		if !ed25519.Verify(writerPubKey, dataSignMsg, dataRecord.DataSig) {
+			errCh <- fmt.Errorf("data signature verification failed at %s", entry.DataKey)
+			return
+		}
+		errCh <- nil
+	}()
+
+	// Wait for both goroutines
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			// Drain remaining goroutine
+			for j := i + 1; j < 2; j++ {
+				<-errCh
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// batchFetchEntries fetches multiple entries in a single etcd range query.
+// Returns entries sorted by index.
+func (kr *KeyRegistry) batchFetchEntries(ctx context.Context, startIdx, endIdx uint64) ([]*HashChainEntry, error) {
+	startKey := HashChainEntryPrefix + strconv.FormatUint(startIdx, 10)
+	endKey := HashChainEntryPrefix + strconv.FormatUint(endIdx+1, 10)
+
+	resp, err := kr.Client().Get(ctx, startKey, clientv3.WithRange(endKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch entries range: %w", err)
+	}
+
+	entries := make([]*HashChainEntry, 0, len(resp.Kvs))
+	for _, kv := range resp.Kvs {
+		var entry HashChainEntry
+		if err := json.Unmarshal(kv.Value, &entry); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal entry: %w", err)
+		}
+		entries = append(entries, &entry)
+	}
+
+	// Sort by index (etcd may not guarantee order with range)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Idx < entries[j].Idx
+	})
+
+	return entries, nil
+}
+
+// batchFetchDataRecords fetches multiple data records in a single etcd transaction.
+// Returns a map from dataKey to data record.
+func (kr *KeyRegistry) batchFetchDataRecords(ctx context.Context, dataKeys []string) (map[string]*HashChainDataRecord, error) {
+	if len(dataKeys) == 0 {
+		return make(map[string]*HashChainDataRecord), nil
+	}
+
+	// Build transaction with all data key gets
+	ops := make([]clientv3.Op, len(dataKeys))
+	for i, key := range dataKeys {
+		ops[i] = clientv3.OpGet(key)
+	}
+
+	txnResp, err := kr.Client().Txn(ctx).Then(ops...).Commit()
+	if err != nil {
+		return nil, fmt.Errorf("batch fetch transaction failed: %w", err)
+	}
+
+	result := make(map[string]*HashChainDataRecord, len(dataKeys))
+	for i, key := range dataKeys {
+		rangeResp := txnResp.Responses[i].GetResponseRange()
+		if len(rangeResp.Kvs) == 0 {
+			return nil, fmt.Errorf("data not found at %s", key)
+		}
+		var record HashChainDataRecord
+		if err := json.Unmarshal(rangeResp.Kvs[0].Value, &record); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal data record at %s: %w", key, err)
+		}
+		result[key] = &record
+	}
+
+	return result, nil
+}
+
+// prefetchWriterPublicKeys fetches and caches public keys for all unique writers.
+// This reduces per-entry round trips during verification.
+func (kr *KeyRegistry) prefetchWriterPublicKeys(ctx context.Context, writerIDs []string) error {
+	for _, writerID := range writerIDs {
+		// getWriterPublicKey already uses cache, so this just warms it
+		_, err := kr.getWriterPublicKey(ctx, writerID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch writer public key for %s: %w", writerID, err)
+		}
+	}
+	return nil
+}
+
 // handleEntryEvent processes an incoming entry event from the watch.
 // It verifies the entry signature, fetches/verifies the data record and head in a single transaction.
 // The entry, data, and head are created together in a transaction, so they share the same WriterID.
-// Verifications are done in parallel for performance.
+// Verifications are done in parallel for performance using verifyEntryAndDataParallel for entry+data
+// and a separate goroutine for head verification.
 // If the entry was written by this pod, skip verification since we already verified during store.
 func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, modRevision int64) {
 	logDev := mutil.LogWithPrefix("dev - handleEntryEvent")
@@ -478,7 +670,7 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 		}
 	}
 
-	// Compute newDigest early (needed for head verification, doesn't depend on verification results)
+	// Pre-compute newDigest (needed for head verification)
 	entrySignHash := computeEntrySignatureMessage(&entry)
 	newDigest := computeNewDigest(prevDigest, entrySignHash, &entry)
 
@@ -490,59 +682,27 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 		return
 	}
 
-	// Error channel for collecting results from 3 verification goroutines
-	errCh := make(chan error, 3)
-
-	// Goroutine 1: Verify entry (chain link + signature)
-	go func() {
-		// Check chain link
-		if !bytes.Equal(entry.PrevDigest, prevDigest) {
-			errCh <- fmt.Errorf("chain broken at idx %d: prev_digest mismatch", entry.Idx)
-			return
-		}
-		// Verify entry signature
-		if err := verifyEntrySignature(&entry, writerPubKey); err != nil {
-			errCh <- fmt.Errorf("entry signature verification failed: %w", err)
-			return
-		}
-		errCh <- nil
-	}()
-
-	// Main body: Fetch both data record and head in a single transaction
-	// Pass the modRevision so we fetch the head at the exact point when this entry was written
+	// Fetch data and head in single transaction
 	dataRecord, head, headModRev, err := kr.fetchDataAndHead(ctx, entry.DataKey, modRevision)
 	if err != nil {
 		logDev("Failed to fetch data and head: %v", err)
-		// Drain the entry verification goroutine
-		<-errCh
 		return
 	}
 
-	// Goroutine 2: Verify data record
+	// Run entry+data verification and head verification in parallel
+	errCh := make(chan error, 2)
+
+	// Goroutine 1: Entry + Data verification (using shared function)
 	go func() {
-		// Verify payload hash
-		payloadHash := sha256.Sum256(dataRecord.Payload)
-		if !bytes.Equal(payloadHash[:], entry.ValueHash) {
-			errCh <- fmt.Errorf("payload hash mismatch at idx %d", entry.Idx)
-			return
-		}
-		// Verify data signature (uses same writerPubKey)
-		dataSignMsg := computeDataSignatureMessage(entry.DataKey, dataRecord.Idx, payloadHash[:], dataRecord.WriterID)
-		if !ed25519.Verify(writerPubKey, dataSignMsg, dataRecord.DataSig) {
-			errCh <- fmt.Errorf("data signature verification failed at %s", entry.DataKey)
-			return
-		}
-		errCh <- nil
+		errCh <- verifyEntryAndDataParallel(&entry, dataRecord, writerPubKey, prevDigest)
 	}()
 
-	// Goroutine 3: Verify head
+	// Goroutine 2: Head verification
 	go func() {
-		// Verify head digest matches our computed newDigest
 		if !bytes.Equal(head.Digest, newDigest) {
 			errCh <- fmt.Errorf("head digest mismatch (expected %x, got %x)", newDigest, head.Digest)
 			return
 		}
-		// Verify head signature (uses same writerPubKey)
 		if err := VerifyHeadSignature(head, writerPubKey); err != nil {
 			errCh <- fmt.Errorf("head signature verification failed: %w", err)
 			return
@@ -550,12 +710,11 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 		errCh <- nil
 	}()
 
-	// Wait for all 3 verification goroutines to complete
-	for i := 0; i < 3; i++ {
+	// Wait for both verifications
+	for i := 0; i < 2; i++ {
 		if err := <-errCh; err != nil {
 			logDev("Verification failed: %v", err)
-			// Drain remaining goroutines
-			for j := i + 1; j < 3; j++ {
+			for j := i + 1; j < 2; j++ {
 				<-errCh
 			}
 			return
@@ -575,8 +734,7 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 
 	logDev("Verified entry idx=%d with head, modRev=%d, dataKey=%s", entry.Idx, headModRev, entry.DataKey)
 
-	// Process verified entries for leader, member, and re-encryption keys (non-blocking)
-	// This is independent of chain validation and can run in separate goroutines
+	// Process verified keys (non-blocking)
 	kr.processAllVerifiedKeys(entry.DataKey, dataRecord, entry.WriterID)
 }
 
