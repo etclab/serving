@@ -377,8 +377,11 @@ func TryAcquireLease(d *Defaults) {
 				// we're notified when new leader elected
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnNewLeader")
 
-				// TODO: here
-				go d.KeyRegistry.ListWatchEveryLeaderPublicKeys("leaders/")
+				// Old approach: explicitly watch every leader's public keys (replaced by hash chain watcher)
+				// The hash chain watcher now receives leader public keys/params as entries
+				// at lambada/audit/entry/<idx> and processes them in handleEntryEvent()
+				// via processVerifiedEveryLeaderKeys() which stores by service name.
+				// go d.KeyRegistry.ListWatchEveryLeaderPublicKeys("leaders/")
 
 				// identity is pod id
 				if leaderIdentity == myId {

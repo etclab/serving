@@ -879,6 +879,9 @@ func (w *HashChainWatcher) storeVerifiedEntryLocked(entry *HashChainEntry, dataR
 func (kr *KeyRegistry) processAllVerifiedKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
 	// Check if it's a leader key (leaders/<service>/<function>/<keyType>/<pod-id>)
 	if parseLeaderKeyPath(dataKey) != nil {
+		// Process for "every leader" storage (by service name) - all pods need this
+		go kr.processVerifiedEveryLeaderKeys(dataKey, dataRecord, writerID)
+		// Process for member's own leader storage (by pod ID) - only members need this
 		go kr.processVerifiedLeaderKeys(dataKey, dataRecord, writerID)
 		return
 	}
@@ -1096,6 +1099,75 @@ func (kr *KeyRegistry) processVerifiedLeaderKeysInternal(dataKey string, dataRec
 	}
 
 	logDev("=== END LEADER KEY PROCESSING ===")
+}
+
+// processVerifiedEveryLeaderKeys processes leader public keys and params for ALL leaders.
+// This replaces the old ListWatchEveryLeaderPublicKeys approach.
+// Unlike processVerifiedLeaderKeys (which stores by pod ID for member's own leader),
+// this stores by service name so all functions can discover all leaders.
+//
+// This is called for ALL leader keys, regardless of whether this pod is a leader or member.
+// It does NOT write to etcd, so no deferral is needed.
+func (kr *KeyRegistry) processVerifiedEveryLeaderKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	logDev := mutil.LogWithPrefix("dev - processVerifiedEveryLeaderKeys")
+
+	// Parse the data key to see if it's a leader key
+	keyInfo := parseLeaderKeyPath(dataKey)
+	if keyInfo == nil {
+		// Not a leader key entry, nothing to do
+		return
+	}
+
+	logDev("=== RECEIVED VERIFIED LEADER KEY FOR EVERY-LEADER STORAGE ==")
+	logDev("  DataKey: %s", dataKey)
+	logDev("  ServiceName: %s", keyInfo.ServiceName)
+	logDev("  FunctionID: %s", keyInfo.FunctionID)
+	logDev("  KeyType: %s", keyInfo.KeyType)
+	logDev("  LeaderPodID: %s", keyInfo.LeaderPodID)
+	logDev("  WriterID: %s", writerID)
+	logDev("  PayloadSize: %d bytes", len(dataRecord.Payload))
+
+	leaderServiceName := keyInfo.ServiceName
+
+	// Handle publicKey entries
+	if keyInfo.KeyType == "publicKey" {
+		pks := new(samba.PublicKeySerialized)
+		err := json.Unmarshal(dataRecord.Payload, pks)
+		if err != nil {
+			logDev("Failed to decode leader public key: %v", err)
+			return
+		}
+
+		publicKey, err := pks.DeSerialize()
+		if err != nil {
+			logDev("Failed to deserialize leader public key: %v", err)
+			return
+		}
+
+		kr.SafeWriteEveryLeaderPublicKey(leaderServiceName, publicKey)
+		logDev("Stored every-leader public key for service=%s (from hash chain)", leaderServiceName)
+	}
+
+	// Handle publicParams entries
+	if keyInfo.KeyType == "publicParams" {
+		pps := new(samba.PublicParamsSerialized)
+		err := json.Unmarshal(dataRecord.Payload, pps)
+		if err != nil {
+			logDev("Failed to decode leader public params: %v", err)
+			return
+		}
+
+		publicParams, err := pps.DeSerialize()
+		if err != nil {
+			logDev("Failed to deserialize leader public params: %v", err)
+			return
+		}
+
+		kr.SafeWriteEveryLeaderPublicParams(leaderServiceName, publicParams)
+		logDev("Stored every-leader public params for service=%s (from hash chain)", leaderServiceName)
+	}
+
+	logDev("=== END EVERY-LEADER KEY PROCESSING ===")
 }
 
 // MemberKeyInfo contains parsed information from a member key data key
