@@ -873,3 +873,219 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 
 	return fmt.Errorf("failed to store enclave public key after %d attempts", maxRetries)
 }
+
+// ============================================================
+// Hash Chain Verified Storage Functions
+// ============================================================
+
+// StoreEnclavePublicKeyWithHashChainVerified stores an enclave public key after
+// verifying the entire hash chain from genesis to current head.
+// This is used for the first write when no watcher is running yet.
+//
+// The function follows the same logic as catchUpHashChain:
+// 1. Uses VerifyChainUpToHead to verify all entries from idx 1 up to current head
+// 2. Updates watcher state with verified entries and data records
+// 3. Queues data records for pending processing (since our public key isn't published yet)
+// 4. Chains and writes our enclave public key
+// 5. Updates watcher's verified state with our new entry
+//
+// After this function succeeds, the caller should:
+// - Mark enclave public key as published
+// - Call ProcessPendingKeyRecords to process deferred key records
+func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChainVerified(
+	ctx context.Context,
+	podID string,
+	enclavePubKey ed25519.PublicKey,
+	enclavePrivKey ed25519.PrivateKey,
+	attestationReport []byte,
+	genesisHash []byte,
+) error {
+	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithHashChainVerified")
+
+	if enclavePubKey == nil || enclavePrivKey == nil {
+		return fmt.Errorf("enclave keypair is nil")
+	}
+
+	dataKey := EnclaveKeysPrefix + podID + EnclavePublicKeySuffix
+	writerID := podID
+
+	// Use shared verification helper - verifies chain from genesis (same as catchUpHashChain)
+	startDigest := genesisHash
+	if len(startDigest) == 0 {
+		logDev("Warning: No genesis hash provided, using zero hash")
+		startDigest = make([]byte, 32)
+	}
+
+	result, err := kr.VerifyChainUpToHead(ctx, 1, startDigest)
+	if err != nil {
+		return fmt.Errorf("chain verification failed: %w", err)
+	}
+
+	// Update watcher state with verified entries and data records (same as catchUpHashChain)
+	// This is important so that subsequent writes can chain correctly
+	UpdateWatcherWithVerifiedEntries(result)
+
+	// Queue data records that write to etcd for pending processing.
+	// We can't process them now because our enclave public key isn't published yet.
+	// Any writes they attempt would fail verification by other pods.
+	// Re-encryption keys don't write to etcd, so they can be processed immediately.
+	for dataKey, dataRecord := range result.DataRecords {
+		if isReEncryptionKey(dataKey) {
+			// Re-encryption keys don't write to etcd, process immediately
+			logDev("Processing re-encryption key immediately: %s", dataKey)
+			go kr.processVerifiedReEncryptionKeys(dataKey, dataRecord, dataRecord.WriterID)
+		} else {
+			// Determine if this key type needs deferral (writes to etcd)
+			keyType := determineKeyTypeForDeferral(dataKey)
+			if keyType != "" {
+				logDev("Queueing %s key for pending processing: %s", keyType, dataKey)
+				addPendingKeyRecord(dataKey, dataRecord, dataRecord.WriterID, keyType)
+			}
+		}
+	}
+
+	var idx uint64
+	var prevDigest []byte
+	var isFirstWrite bool
+	var oldHead *HashChainHead
+	var headModRev int64
+
+	if result.Head == nil {
+		// No head exists - this is the first entry in the chain
+		isFirstWrite = true
+		idx = 1
+		prevDigest = startDigest
+		oldHead = nil
+		headModRev = 0
+		logDev("No existing chain head, will create first entry with idx=1")
+	} else {
+		// Chain exists and is verified
+		isFirstWrite = false
+		idx = result.VerifiedIdx + 1
+		prevDigest = result.VerifiedDigest
+		oldHead = result.Head
+		headModRev = result.HeadModRev
+		logDev("Verified chain up to idx=%d, will write at idx=%d", result.VerifiedIdx, idx)
+	}
+
+	// Pack public key and attestation report together
+	attestedKey := &AttestedPublicKey{
+		PublicKey:   enclavePubKey,
+		Attestation: attestationReport,
+	}
+	payload, err := json.Marshal(attestedKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attested public key: %w", err)
+	}
+
+	// Compute value hash (hash of the packed payload)
+	payloadHash := sha256.Sum256(payload)
+
+	// Create and sign data record
+	dataSignMsg := computeDataSignatureMessage(dataKey, idx, payloadHash[:], writerID)
+	dataSig := ed25519.Sign(enclavePrivKey, dataSignMsg)
+
+	dataRecord := &HashChainDataRecord{
+		Idx:      idx,
+		WriterID: writerID,
+		Payload:  payload,
+		DataSig:  dataSig,
+	}
+
+	// Create entry record (without signature first to compute signature message)
+	entry := &HashChainEntry{
+		Idx:        idx,
+		PrevDigest: prevDigest,
+		OpType:     "PUT",
+		DataKey:    dataKey,
+		ValueHash:  payloadHash[:],
+		WriterID:   writerID,
+	}
+
+	// Sign the entry
+	entrySignMsg := computeEntrySignatureMessage(entry)
+	entry.EntrySig = ed25519.Sign(enclavePrivKey, entrySignMsg)
+
+	// Compute new digest
+	entrySignMsgHash := entrySignMsg
+	newDigest := computeNewDigest(prevDigest, entrySignMsgHash, entry)
+
+	// Create and sign new head
+	headSignMsg := computeHeadSignatureMessage(idx, writerID, newDigest)
+	headSig := ed25519.Sign(enclavePrivKey, headSignMsg)
+
+	newHead := &HashChainHead{
+		Idx:      idx,
+		Digest:   newDigest,
+		WriterID: writerID,
+		HeadSig:  headSig,
+	}
+
+	// Execute atomic transaction
+	success, err := kr.executeHashChainTransaction(ctx, dataKey, dataRecord, entry, newHead, oldHead, headModRev, isFirstWrite)
+	if err != nil {
+		return err
+	}
+
+	if !success {
+		return fmt.Errorf("transaction conflict: head or data key changed")
+	}
+
+	// Update watcher's verified state so subsequent writes can chain correctly
+	// This is critical - after our write, the watcher should know about the new state
+	// so other writes don't re-verify the entire chain
+	UpdateVerifiedState(idx, newDigest, genesisHash, newHead, headModRev+1)
+
+	logDev("Successfully stored enclave public key with verified chain: podID=%s, idx=%d", podID, idx)
+	return nil
+}
+
+// StoreEnclavePublicKeyWithRetryVerified stores an enclave public key with hash chain,
+// verifying the chain before each write attempt and retrying on conflicts.
+// This is the preferred method for initial enclave public key publishing because it
+// doesn't require the watcher to be running first.
+func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
+	podID string,
+	enclavePubKey ed25519.PublicKey,
+	enclavePrivKey ed25519.PrivateKey,
+	attestationReport []byte,
+	genesisHash []byte,
+	maxRetries int,
+) error {
+	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithRetryVerified")
+
+	backoff := 100 * time.Millisecond
+	maxBackoff := 5 * time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Longer timeout for verification
+		err := kr.StoreEnclavePublicKeyWithHashChainVerified(ctx, podID, enclavePubKey, enclavePrivKey, attestationReport, genesisHash)
+		cancel()
+
+		if err == nil {
+			logDev("Successfully stored enclave public key with verified chain on attempt %d", attempt+1)
+			return nil
+		}
+
+		// Check if it's a conflict error (retryable)
+		if strings.Contains(err.Error(), "transaction conflict") {
+			sleepDuration := addJitter(backoff)
+			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter)", attempt+1, sleepDuration)
+			time.Sleep(sleepDuration)
+			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
+			continue
+		}
+
+		// Check if key already exists (write-once violation - not retryable)
+		if strings.Contains(err.Error(), "already exists") {
+			logDev("Key already exists, write-once constraint enforced")
+			return err
+		}
+
+		// Other errors
+		logDev("Error on attempt %d: %v", attempt+1, err)
+		return err
+	}
+
+	return fmt.Errorf("failed to store enclave public key with verified chain after %d attempts", maxRetries)
+}

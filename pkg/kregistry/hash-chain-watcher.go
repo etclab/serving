@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/etclab/pre"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -21,6 +22,17 @@ import (
 // ============================================================
 // Watch-Based Hash Chain Verification
 // ============================================================
+
+// PendingKeyRecord stores a key record that is waiting to be processed.
+// This is used when key records are received before the enclave public key
+// has been published, so processing must be deferred.
+// Only records that write to etcd need deferral: leader (publicParams) and member keys.
+type PendingKeyRecord struct {
+	DataKey    string
+	DataRecord *HashChainDataRecord
+	WriterID   string
+	KeyType    string // "leader" or "member" (only types that write to etcd)
+}
 
 // HashChainWatcher tracks the state of the hash chain verification watcher.
 // It continuously verifies the hash chain as events arrive from etcd.
@@ -37,7 +49,16 @@ type HashChainWatcher struct {
 	verifiedHeads       map[uint64]*HashChainHead       // Verified heads by idx
 	verifiedEntries     map[uint64]*HashChainEntry      // Verified entries by idx
 	verifiedDataRecords map[string]*HashChainDataRecord // Verified data records by dataKey
+
+	// Pending records for deferred processing (separate mutex from verified state)
+	pendingMu      sync.Mutex
+	pendingRecords []PendingKeyRecord // Key records awaiting processing
 }
+
+// enclavePublicKeyPublished tracks whether this pod's enclave public key has been
+// successfully published to the hash chain. Processing of member keys that require
+// writing back to etcd (like re-encryption key generation) must wait until this is true.
+var enclavePublicKeyPublished atomic.Bool
 
 // Package-level watcher state
 var chainWatcher = &HashChainWatcher{
@@ -54,6 +75,77 @@ func (w *HashChainWatcher) GetVerifiedState() (uint64, []byte, []byte, int64, *H
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.verifiedIdx, w.verifiedDigest, w.genesisHash, w.headModRev, w.verifiedHeads[w.verifiedIdx]
+}
+
+// SetGenesisHash sets the genesis hash for the chain watcher without starting it.
+// This must be called BEFORE any writes to the hash chain to ensure the first entry
+// uses the correct genesis hash as its prev_digest.
+func SetGenesisHash(genesisHash []byte) {
+	chainWatcher.mu.Lock()
+	defer chainWatcher.mu.Unlock()
+	chainWatcher.genesisHash = genesisHash
+}
+
+// MarkEnclavePublicKeyPublished marks that this pod's enclave public key has been
+// successfully published to the hash chain. This should be called after the
+// enclave public key is successfully stored.
+func MarkEnclavePublicKeyPublished() {
+	enclavePublicKeyPublished.Store(true)
+}
+
+// IsEnclavePublicKeyPublished returns whether this pod's enclave public key
+// has been successfully published to the hash chain.
+func IsEnclavePublicKeyPublished() bool {
+	return enclavePublicKeyPublished.Load()
+}
+
+// addPendingKeyRecord adds a key record to the pending queue for later processing.
+// This is called when key records are received before the enclave public key is published.
+// keyType should be "leader", "member", or "reencryption".
+func addPendingKeyRecord(dataKey string, dataRecord *HashChainDataRecord, writerID string, keyType string) {
+	chainWatcher.pendingMu.Lock()
+	defer chainWatcher.pendingMu.Unlock()
+	chainWatcher.pendingRecords = append(chainWatcher.pendingRecords, PendingKeyRecord{
+		DataKey:    dataKey,
+		DataRecord: dataRecord,
+		WriterID:   writerID,
+		KeyType:    keyType,
+	})
+}
+
+// ProcessPendingKeyRecords processes all pending key records that were queued
+// while waiting for the enclave public key to be published.
+// This should be called after MarkEnclavePublicKeyPublished().
+func (kr *KeyRegistry) ProcessPendingKeyRecords() {
+	logDev := mutil.LogWithPrefix("dev - ProcessPendingKeyRecords")
+
+	chainWatcher.pendingMu.Lock()
+	pending := chainWatcher.pendingRecords
+	chainWatcher.pendingRecords = nil // Clear the queue
+	chainWatcher.pendingMu.Unlock()
+
+	if len(pending) == 0 {
+		logDev("No pending key records to process")
+		return
+	}
+
+	logDev("Processing %d pending key records", len(pending))
+	for _, record := range pending {
+		logDev("Processing deferred %s key: %s", record.KeyType, record.DataKey)
+		switch record.KeyType {
+		case "leader":
+			kr.processVerifiedLeaderKeysInternal(record.DataKey, record.DataRecord, record.WriterID)
+		case "member":
+			kr.processVerifiedMemberKeysInternal(record.DataKey, record.DataRecord, record.WriterID)
+		}
+	}
+	logDev("Finished processing pending key records")
+}
+
+// ProcessPendingMemberKeys is kept for backwards compatibility.
+// It now calls ProcessPendingKeyRecords which handles all key types.
+func (kr *KeyRegistry) ProcessPendingMemberKeys() {
+	kr.ProcessPendingKeyRecords()
 }
 
 // StartHashChainWatcher starts the hash chain verification watcher.
@@ -127,93 +219,151 @@ func (kr *KeyRegistry) runHashChainWatcher() {
 	}
 }
 
-// catchUpHashChain fetches and verifies existing entries up to current head.
-// Returns the head's ModRevision for starting the watch.
-func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
-	logDev := mutil.LogWithPrefix("dev - catchUpHashChain")
+// VerifyChainResult holds the result of chain verification
+type VerifyChainResult struct {
+	Head           *HashChainHead
+	HeadModRev     int64
+	VerifiedIdx    uint64
+	VerifiedDigest []byte
+	Entries        map[uint64]*HashChainEntry
+	DataRecords    map[string]*HashChainDataRecord
+}
+
+// VerifyChainUpToHead verifies all entries from startIdx to the current head.
+// This is a shared helper used by both catchUpHashChain and StoreEnclavePublicKeyWithHashChainVerified.
+// It does NOT update watcher state or process keys - callers handle that.
+//
+// Parameters:
+//   - startIdx: the first entry index to verify (1 for full verification from genesis)
+//   - startDigest: the digest before startIdx (genesis hash if startIdx=1)
+//
+// Returns the verification result including all verified entries and data records.
+func (kr *KeyRegistry) VerifyChainUpToHead(ctx context.Context, startIdx uint64, startDigest []byte) (*VerifyChainResult, error) {
+	logDev := mutil.LogWithPrefix("dev - VerifyChainUpToHead")
 
 	// Get current head
 	head, headModRev, err := kr.GetHashChainHead(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get hash chain head: %w", err)
+		return nil, fmt.Errorf("failed to get hash chain head: %w", err)
 	}
 
 	if head == nil {
-		logDev("No hash chain head yet, starting fresh")
-		return 0, nil
+		logDev("No hash chain head yet")
+		return &VerifyChainResult{
+			Head:           nil,
+			HeadModRev:     0,
+			VerifiedIdx:    0,
+			VerifiedDigest: startDigest,
+			Entries:        make(map[uint64]*HashChainEntry),
+			DataRecords:    make(map[string]*HashChainDataRecord),
+		}, nil
 	}
 
-	chainWatcher.mu.RLock()
-	nextIdToVerify := chainWatcher.verifiedIdx + 1
-	prevDigest := chainWatcher.verifiedDigest
-	chainWatcher.mu.RUnlock()
-
-	// Initialize from genesis if needed
-	if nextIdToVerify == 1 || prevDigest == nil {
-		nextIdToVerify = 1
-		prevDigest = chainWatcher.genesisHash
-		if len(prevDigest) == 0 {
-			logDev("Warning: No genesis hash provided, using zero hash")
-			prevDigest = make([]byte, 32)
-		}
+	prevDigest := startDigest
+	if len(prevDigest) == 0 {
+		logDev("Warning: No start digest provided, using zero hash")
+		prevDigest = make([]byte, 32)
 	}
 
-	logDev("Catching up from idx=%d to head.Idx=%d", nextIdToVerify, head.Idx)
+	logDev("Verifying chain from idx=%d to head.Idx=%d", startIdx, head.Idx)
+
+	entries := make(map[uint64]*HashChainEntry)
+	dataRecords := make(map[string]*HashChainDataRecord)
 
 	// Verify entries from startIdx to head.Idx
-	// starting with nextIdxToVerify verify upto <= head.Idx
-	for i := nextIdToVerify; i <= head.Idx; i++ {
+	for i := startIdx; i <= head.Idx; i++ {
 		entry, err := kr.getEntry(ctx, HashChainEntryPrefix+strconv.FormatUint(i, 10))
 		if err != nil {
-			return 0, fmt.Errorf("failed to fetch entry %d: %w", i, err)
+			return nil, fmt.Errorf("failed to fetch entry %d: %w", i, err)
 		}
 
 		dataRecord, err := kr.verifyAndProcessEntryWithData(ctx, entry, prevDigest)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 
 		// Compute new digest
 		entrySignHash := computeEntrySignatureMessage(entry)
 		prevDigest = computeNewDigest(prevDigest, entrySignHash, entry)
 
-		// Store verified entry and data record
-		chainWatcher.mu.Lock()
-		chainWatcher.verifiedEntries[entry.Idx] = entry
+		// Store in result maps
+		entries[entry.Idx] = entry
 		if dataRecord != nil {
-			chainWatcher.verifiedDataRecords[entry.DataKey] = dataRecord
+			dataRecords[entry.DataKey] = dataRecord
 		}
-		chainWatcher.mu.Unlock()
 
-		// Process leader keys from catch-up entries (non-blocking)
-		// This is independent of chain validation and can run in a separate goroutine
-		if dataRecord != nil {
-			go kr.processVerifiedLeaderKeys(entry.DataKey, dataRecord, entry.WriterID)
-		}
+		logDev("Verified entry idx=%d, dataKey=%s", i, entry.DataKey)
 	}
 
 	// Verify head signature and digest match
 	if err := kr.verifyHead(ctx, head, prevDigest); err != nil {
+		return nil, err
+	}
+
+	logDev("Verified chain up to idx=%d", head.Idx)
+	return &VerifyChainResult{
+		Head:           head,
+		HeadModRev:     headModRev,
+		VerifiedIdx:    head.Idx,
+		VerifiedDigest: prevDigest,
+		Entries:        entries,
+		DataRecords:    dataRecords,
+	}, nil
+}
+
+// catchUpHashChain fetches and verifies existing entries up to current head.
+// Returns the head's ModRevision for starting the watch.
+func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
+	logDev := mutil.LogWithPrefix("dev - catchUpHashChain")
+
+	// Determine where to start verification
+	chainWatcher.mu.RLock()
+	startIdx := chainWatcher.verifiedIdx + 1
+	startDigest := chainWatcher.verifiedDigest
+	chainWatcher.mu.RUnlock()
+
+	// Initialize from genesis if needed
+	if startIdx == 1 || startDigest == nil {
+		startIdx = 1
+		startDigest = chainWatcher.genesisHash
+		if len(startDigest) == 0 {
+			logDev("Warning: No genesis hash provided, using zero hash")
+			startDigest = make([]byte, 32)
+		}
+	}
+
+	// Use shared verification helper
+	result, err := kr.VerifyChainUpToHead(ctx, startIdx, startDigest)
+	if err != nil {
 		return 0, err
 	}
 
-	// Update watcher state including verified head
-	chainWatcher.mu.Lock()
-	chainWatcher.verifiedIdx = head.Idx
-	chainWatcher.verifiedDigest = prevDigest
-	chainWatcher.headModRev = headModRev
-	chainWatcher.verifiedHeads[head.Idx] = head
-	chainWatcher.mu.Unlock()
+	if result.Head == nil {
+		logDev("No hash chain head yet, starting fresh")
+		return 0, nil
+	}
+
+	// Update watcher state with verified entries and data records
+	UpdateWatcherWithVerifiedEntries(result)
+
+	// Process leader, member, and re-encryption keys from catch-up entries (non-blocking)
+	// This is independent of chain validation and can run in separate goroutines
+	for dataKey, dataRecord := range result.DataRecords {
+		entry := result.Entries[dataRecord.Idx]
+		if entry != nil {
+			kr.processAllVerifiedKeys(dataKey, dataRecord, entry.WriterID)
+		}
+	}
 
 	// Seal state for persistence
 	if kr.PodId != "" && kr.FunctionId != "" {
-		if err := sealVerifiedState(kr.PodId, kr.FunctionId, head.Idx, prevDigest); err != nil {
+		if err := sealVerifiedState(kr.PodId, kr.FunctionId, result.VerifiedIdx, result.VerifiedDigest); err != nil {
 			logDev("Warning: failed to seal verified state: %v", err)
 		}
 	}
 
-	logDev("Caught up to idx=%d", head.Idx)
-	return headModRev, nil
+	logDev("Caught up to idx=%d", result.VerifiedIdx)
+	return result.HeadModRev, nil
 }
 
 // verifyAndProcessEntryWithData verifies a single hash chain entry and returns the data record.
@@ -309,13 +459,13 @@ func (kr *KeyRegistry) verifyHead(ctx context.Context, head *HashChainHead, expe
 func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, modRevision int64) {
 	logDev := mutil.LogWithPrefix("dev - handleEntryEvent")
 
-	logDev("Received entry event for key: %s, modRevision: %d", string(key), modRevision)
-
 	var entry HashChainEntry
 	if err := json.Unmarshal(value, &entry); err != nil {
 		logDev("Error unmarshaling entry: %v", err)
 		return
 	}
+
+	logDev("Received entry event for key: %s, modRevision: %d, dataKey: %s", string(key), modRevision, entry.DataKey)
 
 	chainWatcher.mu.Lock()
 	defer chainWatcher.mu.Unlock()
@@ -413,12 +563,8 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 	}
 
 	// All verifications passed - update state and store verified entry/data/head
-	chainWatcher.verifiedIdx = entry.Idx
-	chainWatcher.verifiedDigest = newDigest
-	chainWatcher.headModRev = headModRev
-	chainWatcher.verifiedEntries[entry.Idx] = &entry
-	chainWatcher.verifiedHeads[entry.Idx] = head
-	chainWatcher.verifiedDataRecords[entry.DataKey] = dataRecord
+	chainWatcher.updateVerifiedStateLocked(entry.Idx, newDigest, headModRev, head)
+	chainWatcher.storeVerifiedEntryLocked(&entry, dataRecord)
 
 	// Seal state for persistence
 	if kr.PodId != "" && kr.FunctionId != "" {
@@ -427,13 +573,11 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 		}
 	}
 
-	logDev("Verified entry idx=%d with head, modRev=%d", entry.Idx, headModRev)
+	logDev("Verified entry idx=%d with head, modRev=%d, dataKey=%s", entry.Idx, headModRev, entry.DataKey)
 
-	// Process verified entries for leader public keys and params (non-blocking)
-	// This is independent of chain validation and can run in a separate goroutine
-	// These are stored at: leaders/<service>/<function>/publicKey/<pod-id>
-	//                  or: leaders/<service>/<function>/publicParams/<pod-id>
-	go kr.processVerifiedLeaderKeys(entry.DataKey, dataRecord, entry.WriterID)
+	// Process verified entries for leader, member, and re-encryption keys (non-blocking)
+	// This is independent of chain validation and can run in separate goroutines
+	kr.processAllVerifiedKeys(entry.DataKey, dataRecord, entry.WriterID)
 }
 
 // fetchDataAndHead fetches both the data record and head in a single etcd transaction.
@@ -488,6 +632,134 @@ func GetWatcherVerifiedState() (uint64, []byte, []byte, int64, *HashChainHead) {
 	return chainWatcher.GetVerifiedState()
 }
 
+// UpdateVerifiedState updates the watcher's verified state after a successful write.
+// This is called after StoreEnclavePublicKeyWithHashChainVerified to sync the watcher state
+// so subsequent writes can chain correctly without re-verifying the entire chain.
+//
+// Parameters:
+//   - idx: the new verified index (the index just written)
+//   - digest: the new chain digest after the write
+//   - genesisHash: the genesis hash (in case it wasn't set before)
+//   - head: the new head record that was written
+//   - headModRev: the mod revision of the new head
+func UpdateVerifiedState(idx uint64, digest []byte, genesisHash []byte, head *HashChainHead, headModRev int64) {
+	chainWatcher.mu.Lock()
+	defer chainWatcher.mu.Unlock()
+
+	if len(genesisHash) > 0 && len(chainWatcher.genesisHash) == 0 {
+		chainWatcher.genesisHash = genesisHash
+	}
+	chainWatcher.updateVerifiedStateLocked(idx, digest, headModRev, head)
+}
+
+// UpdateWatcherWithVerifiedEntries updates the watcher state with entries and data records
+// from a VerifyChainResult. This is called by StoreEnclavePublicKeyWithHashChainVerified
+// to sync the watcher state after verification, matching what catchUpHashChain does.
+// Returns true if the verifiedIdx was updated, false if skipped due to stale result.
+func UpdateWatcherWithVerifiedEntries(result *VerifyChainResult) bool {
+	logDev := mutil.LogWithPrefix("dev - UpdateWatcherWithVerifiedEntries")
+
+	if result == nil || result.Head == nil {
+		return false
+	}
+
+	chainWatcher.mu.Lock()
+	defer chainWatcher.mu.Unlock()
+
+	// Check if this result is stale before doing any work
+	if result.VerifiedIdx < chainWatcher.verifiedIdx {
+		logDev("Skipping stale update: result.VerifiedIdx=%d < current verifiedIdx=%d",
+			result.VerifiedIdx, chainWatcher.verifiedIdx)
+		return false
+	}
+
+	// Copy verified entries to watcher (safe even for concurrent updates since maps are keyed)
+	for idx, entry := range result.Entries {
+		chainWatcher.verifiedEntries[idx] = entry
+	}
+	for dataKey, dataRecord := range result.DataRecords {
+		chainWatcher.verifiedDataRecords[dataKey] = dataRecord
+	}
+
+	// Update core verified state (will also check for stale idx)
+	return chainWatcher.updateVerifiedStateLocked(result.VerifiedIdx, result.VerifiedDigest, result.HeadModRev, result.Head)
+}
+
+// updateVerifiedStateLocked updates the core verified state fields.
+// Caller MUST hold chainWatcher.mu lock.
+// Only updates if the new idx is >= the current verifiedIdx to prevent
+// concurrent updates from overwriting newer state with older state.
+// Returns true if the state was updated, false if skipped due to stale idx.
+func (w *HashChainWatcher) updateVerifiedStateLocked(idx uint64, digest []byte, headModRev int64, head *HashChainHead) bool {
+	// Prevent overwriting newer state with older state from concurrent operations
+	if idx < w.verifiedIdx {
+		return false
+	}
+	w.verifiedIdx = idx
+	w.verifiedDigest = digest
+	w.headModRev = headModRev
+	if head != nil {
+		w.verifiedHeads[idx] = head
+	}
+	return true
+}
+
+// storeVerifiedEntry stores a single verified entry and its data record in the watcher cache.
+// Caller MUST hold chainWatcher.mu lock.
+func (w *HashChainWatcher) storeVerifiedEntryLocked(entry *HashChainEntry, dataRecord *HashChainDataRecord) {
+	if entry != nil {
+		w.verifiedEntries[entry.Idx] = entry
+	}
+	if dataRecord != nil && entry != nil {
+		w.verifiedDataRecords[entry.DataKey] = dataRecord
+	}
+}
+
+// processAllVerifiedKeys processes leader, member, or re-encryption keys for a verified data record.
+// This is called after chain verification succeeds. It determines the key type from the dataKey
+// and only calls the appropriate processing function in a separate goroutine.
+func (kr *KeyRegistry) processAllVerifiedKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	// Check if it's a leader key (leaders/<service>/<function>/<keyType>/<pod-id>)
+	if parseLeaderKeyPath(dataKey) != nil {
+		go kr.processVerifiedLeaderKeys(dataKey, dataRecord, writerID)
+		return
+	}
+
+	// Check if it's a member key (members/<leader-pod-id>/<keyType>/<member-pod-id>)
+	if memberInfo := parseMemberKeyPath(dataKey); memberInfo != nil {
+		switch memberInfo.KeyType {
+		case "publicKey":
+			go kr.processVerifiedMemberKeys(dataKey, dataRecord, writerID)
+		case "reEncryptionKey":
+			go kr.processVerifiedReEncryptionKeys(dataKey, dataRecord, writerID)
+		}
+		return
+	}
+
+	// Unknown key type - no processing needed
+	logDev := mutil.LogWithPrefix("dev - processAllVerifiedKeys")
+	logDev("No key processing needed for dataKey: %s", dataKey)
+}
+
+// determineKeyTypeForDeferral determines the key type from a data key path
+// for the purpose of deferring processing until enclave public key is published.
+// Only returns types that write to etcd: "leader" or "member".
+// Re-encryption keys don't write to etcd, so they're not returned here.
+func determineKeyTypeForDeferral(dataKey string) string {
+	if strings.HasPrefix(dataKey, "leaders/") {
+		return "leader"
+	}
+	if strings.HasPrefix(dataKey, "members/") && strings.Contains(dataKey, "/publicKey/") {
+		return "member"
+	}
+	return ""
+}
+
+// isReEncryptionKey checks if a data key is a re-encryption key path.
+func isReEncryptionKey(dataKey string) bool {
+	return strings.HasPrefix(dataKey, "members/") && strings.Contains(dataKey, "/reEncryptionKey/")
+}
+
 // LeaderKeyInfo contains parsed information from a leader key data key
 type LeaderKeyInfo struct {
 	ServiceName string
@@ -498,7 +770,9 @@ type LeaderKeyInfo struct {
 
 // parseLeaderKeyPath parses a leader key data key path.
 // Expected format: leaders/<service>/<function>/publicKey/<pod-id>
-//              or: leaders/<service>/<function>/publicParams/<pod-id>
+//
+//	or: leaders/<service>/<function>/publicParams/<pod-id>
+//
 // Returns nil if the path doesn't match the expected format.
 func parseLeaderKeyPath(dataKey string) *LeaderKeyInfo {
 	if !strings.HasPrefix(dataKey, "leaders/") {
@@ -534,6 +808,10 @@ func parseLeaderKeyPath(dataKey string) *LeaderKeyInfo {
 //
 // For publicKey entries: deserialize and store via SafeWriteMemLeaderPublicKey
 // For publicParams entries: deserialize, store, generate member keypair, and store member's public key
+//
+// NOTE: If our enclave public key hasn't been published yet, we defer processing to the pending queue.
+// This is because publicParams processing writes our member public key to the chain, and other pods
+// can't verify our signature until our enclave public key is published.
 func (kr *KeyRegistry) processVerifiedLeaderKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
 	logDev := mutil.LogWithPrefix("dev - processVerifiedLeaderKeys")
 
@@ -541,6 +819,38 @@ func (kr *KeyRegistry) processVerifiedLeaderKeys(dataKey string, dataRecord *Has
 	keyInfo := parseLeaderKeyPath(dataKey)
 	if keyInfo == nil {
 		// Not a leader key entry, nothing to do
+		return
+	}
+
+	// Only members should process leader keys - leader already has its own keys
+	if kr.StartedLeading.Load() {
+		logDev("I am the leader, skipping leader key processing for %s", dataKey)
+		return
+	}
+
+	// Check if our enclave public key has been published.
+	// If not, we must defer processing because when we store our member public key,
+	// other pods won't be able to verify the signature (they don't have our public key yet).
+	if !IsEnclavePublicKeyPublished() {
+		logDev("Enclave public key not yet published, deferring leader key processing for %s", dataKey)
+		addPendingKeyRecord(dataKey, dataRecord, writerID, "leader")
+		return
+	}
+
+	// Call the internal processing function
+	kr.processVerifiedLeaderKeysInternal(dataKey, dataRecord, writerID)
+}
+
+// processVerifiedLeaderKeysInternal performs the actual leader key processing.
+// This is called either directly (if enclave public key is already published)
+// or from ProcessPendingKeyRecords (for deferred records).
+func (kr *KeyRegistry) processVerifiedLeaderKeysInternal(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	logDev := mutil.LogWithPrefix("dev - processVerifiedLeaderKeysInternal")
+
+	// Re-parse the key info (needed for deferred processing)
+	keyInfo := parseLeaderKeyPath(dataKey)
+	if keyInfo == nil {
+		logDev("Failed to re-parse leader key path: %s", dataKey)
 		return
 	}
 
@@ -628,4 +938,242 @@ func (kr *KeyRegistry) processVerifiedLeaderKeys(dataKey string, dataRecord *Has
 	}
 
 	logDev("=== END LEADER KEY PROCESSING ===")
+}
+
+// MemberKeyInfo contains parsed information from a member key data key
+type MemberKeyInfo struct {
+	LeaderPodID string
+	KeyType     string // "publicKey" or "reEncryptionKey"
+	MemberPodID string
+}
+
+// parseMemberKeyPath parses a member key data key path.
+// Expected format: members/<leader-pod-id>/publicKey/<member-pod-id>
+//
+//	or: members/<leader-pod-id>/reEncryptionKey/<member-pod-id>
+//
+// Returns nil if the path doesn't match the expected format.
+func parseMemberKeyPath(dataKey string) *MemberKeyInfo {
+	if !strings.HasPrefix(dataKey, "members/") {
+		return nil
+	}
+
+	// Remove "members/" prefix
+	rest := strings.TrimPrefix(dataKey, "members/")
+
+	// Split the remaining path: <leader-pod-id>/<keyType>/<member-pod-id>
+	parts := strings.Split(rest, "/")
+	if len(parts) != 3 {
+		return nil
+	}
+
+	keyType := parts[1]
+	if keyType != "publicKey" && keyType != "reEncryptionKey" {
+		return nil
+	}
+
+	return &MemberKeyInfo{
+		LeaderPodID: parts[0],
+		KeyType:     keyType,
+		MemberPodID: parts[2],
+	}
+}
+
+// processVerifiedMemberKeys checks if a verified entry contains member public keys
+// and processes them. This replaces the old ListWatchMemberPublicKeys approach.
+// After verification succeeds in handleEntryEvent(), this method is called to process
+// entries that match the member key pattern.
+//
+// For publicKey entries (members/<leader-pod-id>/publicKey/<member-pod-id>):
+// - Only the leader should process these (to generate re-encryption keys)
+// - Deserialize the member's public key
+// - Generate a re-encryption key using leader's secret key
+// - Store the re-encryption key for the member
+func (kr *KeyRegistry) processVerifiedMemberKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	logDev := mutil.LogWithPrefix("dev - processVerifiedMemberKeys")
+
+	// Parse the data key to see if it's a member key
+	keyInfo := parseMemberKeyPath(dataKey)
+	if keyInfo == nil {
+		// Not a member key entry, nothing to do
+		return
+	}
+
+	// Only process publicKey entries (we generate re-encryption keys from these)
+	if keyInfo.KeyType != "publicKey" {
+		return
+	}
+
+	// Only the leader should process member public keys to generate re-encryption keys
+	if !kr.StartedLeading.Load() {
+		logDev("Not a leader, skipping member public key processing for %s", dataKey)
+		return
+	}
+
+	// Check if this member public key is for me (the leader)
+	if keyInfo.LeaderPodID != kr.PodId {
+		logDev("Member public key is for leader %s, not me (%s), skipping", keyInfo.LeaderPodID, kr.PodId)
+		return
+	}
+
+	// Check if our enclave public key has been published.
+	// If not, we must defer processing because when we store the re-encryption key,
+	// other pods won't be able to verify the signature (they don't have our public key yet).
+	if !IsEnclavePublicKeyPublished() {
+		logDev("Enclave public key not yet published, deferring member key processing for %s", dataKey)
+		addPendingKeyRecord(dataKey, dataRecord, writerID, "member")
+		return
+	}
+
+	// Call the internal processing function
+	kr.processVerifiedMemberKeysInternal(dataKey, dataRecord, writerID)
+}
+
+// processVerifiedMemberKeysInternal performs the actual member key processing.
+// This is called either directly (if enclave public key is already published)
+// or from ProcessPendingMemberKeys (for deferred records).
+func (kr *KeyRegistry) processVerifiedMemberKeysInternal(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	logDev := mutil.LogWithPrefix("dev - processVerifiedMemberKeysInternal")
+
+	// Re-parse the key info (needed for deferred processing)
+	keyInfo := parseMemberKeyPath(dataKey)
+	if keyInfo == nil {
+		logDev("Failed to re-parse member key path: %s", dataKey)
+		return
+	}
+
+	logDev("=== RECEIVED VERIFIED MEMBER PUBLIC KEY FROM HASH CHAIN ===")
+	logDev("  DataKey: %s", dataKey)
+	logDev("  LeaderPodID: %s", keyInfo.LeaderPodID)
+	logDev("  MemberPodID: %s", keyInfo.MemberPodID)
+	logDev("  WriterID: %s", writerID)
+	logDev("  PayloadSize: %d bytes", len(dataRecord.Payload))
+
+	memberPodId := keyInfo.MemberPodID
+
+	// Deserialize the member's public key from the payload
+	pks := new(samba.PublicKeySerialized)
+	err := json.Unmarshal(dataRecord.Payload, pks)
+	if err != nil {
+		logDev("Failed to decode member public key: %v", err)
+		return
+	}
+
+	publicKey, err := pks.DeSerialize()
+	if err != nil {
+		logDev("Failed to deserialize member public key: %v", err)
+		return
+	}
+
+	// Store the member's public key in LeaMemPublicKeys map
+	lmMap := kr.LeaMemPublicKeys
+	if lmMap == nil {
+		lmMap = make(map[string]*pre.PublicKey)
+		kr.LeaMemPublicKeys = lmMap
+	}
+	lmMap[memberPodId] = publicKey
+	logDev("Stored public key for member %s", memberPodId)
+
+	// Create a re-encryption key for the member using leader's keys
+	pp, kp := kr.SafeReadLeaderKeys()
+	if pp == nil || kp == nil {
+		logDev("Leader keys not available, cannot generate re-encryption key")
+		return
+	}
+	reEncryptionKey := pre.ReEncryptionKeyGen(pp, kp.SK, publicKey)
+
+	// Store the re-encryption key in LeaMemReEncryptionKeys map
+	rKeyMap := kr.LeaMemReEncryptionKeys
+	if rKeyMap == nil {
+		rKeyMap = make(map[string]*pre.ReEncryptionKey)
+		kr.LeaMemReEncryptionKeys = rKeyMap
+	}
+	rKeyMap[memberPodId] = reEncryptionKey
+	logDev("Created re-encryption key for member %s", memberPodId)
+
+	// Store member's re-encryption key in etcd with hash chain
+	// Path: members/<leader-pod-id>/reEncryptionKey/<member-pod-id>
+	memReEncKeyLabel := "members/" + kr.PodId + "/reEncryptionKey/" + memberPodId
+
+	// Serialize the re-encryption key properly before storing
+	reks := new(samba.ReEncryptionKeySerialized)
+	reks.Serialize(reEncryptionKey)
+	err = kr.StoreWithHashChainAndRetry(memReEncKeyLabel, reks, 5)
+	if err != nil {
+		logDev("Failed to store member re-encryption key with hash chain: %v", err)
+		return
+	}
+	logDev("Stored member re-encryption key with hash chain at %s", memReEncKeyLabel)
+
+	logDev("=== END MEMBER KEY PROCESSING ===")
+}
+
+// processVerifiedReEncryptionKeys checks if a verified entry contains a re-encryption key
+// and processes it. This replaces the old ListWatchReEncryptionKey approach.
+// After verification succeeds in handleEntryEvent(), this method is called to process
+// entries that match the re-encryption key pattern.
+//
+// For reEncryptionKey entries (members/<leader-pod-id>/reEncryptionKey/<member-pod-id>):
+// - Only the member should process these (to receive re-encryption keys from leader)
+// - Deserialize the re-encryption key
+// - Store it via SafeWriteMemLeaderReEncryptionKey()
+// - Mark the pod as PRE-ready
+func (kr *KeyRegistry) processVerifiedReEncryptionKeys(dataKey string, dataRecord *HashChainDataRecord, writerID string) {
+	logDev := mutil.LogWithPrefix("dev - processVerifiedReEncryptionKeys")
+
+	// Parse the data key to see if it's a member key
+	keyInfo := parseMemberKeyPath(dataKey)
+	if keyInfo == nil {
+		// Not a member key entry, nothing to do
+		return
+	}
+
+	// Only process reEncryptionKey entries
+	if keyInfo.KeyType != "reEncryptionKey" {
+		return
+	}
+
+	// Only members should process re-encryption keys - leader generates them
+	if kr.StartedLeading.Load() {
+		logDev("I am the leader, skipping re-encryption key processing for %s", dataKey)
+		return
+	}
+
+	// Check if this re-encryption key is for me (the member)
+	if keyInfo.MemberPodID != kr.PodId {
+		logDev("Re-encryption key is for member %s, not me (%s), skipping", keyInfo.MemberPodID, kr.PodId)
+		return
+	}
+
+	logDev("=== RECEIVED VERIFIED RE-ENCRYPTION KEY FROM HASH CHAIN ===")
+	logDev("  DataKey: %s", dataKey)
+	logDev("  LeaderPodID: %s", keyInfo.LeaderPodID)
+	logDev("  MemberPodID: %s", keyInfo.MemberPodID)
+	logDev("  WriterID: %s", writerID)
+	logDev("  PayloadSize: %d bytes", len(dataRecord.Payload))
+
+	leaderPodId := keyInfo.LeaderPodID
+
+	// Deserialize the re-encryption key from the payload
+	rks := new(samba.ReEncryptionKeySerialized)
+	err := json.Unmarshal(dataRecord.Payload, rks)
+	if err != nil {
+		logDev("Failed to decode re-encryption key: %v", err)
+		return
+	}
+
+	reEncryptionKey, err := rks.DeSerialize()
+	if err != nil {
+		logDev("Failed to deserialize re-encryption key: %v", err)
+		return
+	}
+
+	// Store the re-encryption key via SafeWriteMemLeaderReEncryptionKey
+	kr.SafeWriteMemLeaderReEncryptionKey(leaderPodId, reEncryptionKey)
+	logDev("Stored re-encryption key from leader %s", leaderPodId)
+
+	// Mark the pod as PRE-ready since we now have the re-encryption key
+	go kr.MarkPodPreReady()
+
+	logDev("=== END RE-ENCRYPTION KEY PROCESSING ===")
 }

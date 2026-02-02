@@ -275,10 +275,11 @@ func TryAcquireLease(d *Defaults) {
 
 				logDev := mutil.LogWithPrefix("dev - TryAcquireLease - OnStartedLeading")
 
-				// TODO: here
-				// watch for member's public keys at prefix: members/<leader-pod-id>/publicKey/
-				memberPublicKeyDir := "members/" + myId + "/publicKey"
-				go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
+				// Old approach: explicitly watch member public keys (replaced by hash chain watcher)
+				// The hash chain watcher now receives member public keys as entries
+				// at lambada/audit/entry/<idx> and processes them in handleEntryEvent()
+				// memberPublicKeyDir := "members/" + myId + "/publicKey"
+				// go d.KeyRegistry.ListWatchMemberPublicKeys(memberPublicKeyDir, myId)
 
 				var err error
 				var pp *pre.PublicParams
@@ -390,11 +391,11 @@ func TryAcquireLease(d *Defaults) {
 				logDev("new leader elected: %s", leaderIdentity)
 				d.KeyRegistry.SafeWriteMemLeaderId(leaderIdentity)
 
-				// TODO: here
-				// watch for re-encryption keys at exact prefix:
-				// members/<leader-pod-id>/reEncryptionKey/<my-pod-id>
-				reEncKeyDir := "members/" + leaderIdentity + "/reEncryptionKey/" + myId
-				go d.KeyRegistry.ListWatchReEncryptionKey(reEncKeyDir, leaderIdentity)
+				// Old approach: explicitly watch re-encryption keys (replaced by hash chain watcher)
+				// The hash chain watcher now receives re-encryption keys as entries
+				// at lambada/audit/entry/<idx> and processes them in handleEntryEvent()
+				// reEncKeyDir := "members/" + leaderIdentity + "/reEncryptionKey/" + myId
+				// go d.KeyRegistry.ListWatchReEncryptionKey(reEncKeyDir, leaderIdentity)
 
 				// Old approach variables (commented out - now using hash chain watcher)
 				// myFunctionRevision := d.KeyRegistry.FunctionId
@@ -565,6 +566,32 @@ func parseEd25519PublicKey(pemData []byte) (ed25519.PublicKey, error) {
 	return edPub, nil
 }
 
+// initGenesisHash decodes and sets the genesis hash for the chain watcher.
+// This must be called BEFORE any writes to the hash chain to ensure the first
+// entry uses the correct genesis hash as its prev_digest.
+// Returns the decoded genesis hash bytes for use by publishEnclavePublicKey.
+func initGenesisHash(d *Defaults, logger *zap.SugaredLogger) []byte {
+	logDev := mutil.LogWithPrefix("dev - initGenesisHash")
+
+	// Decode genesis hash
+	var genesisHashBytes []byte
+	if len(d.Env.GenesisHash) > 0 {
+		var err error
+		genesisHashBytes, err = hex.DecodeString(string(bytes.TrimSpace(d.Env.GenesisHash)))
+		if err != nil {
+			logger.Warnw("Failed to decode genesis hash", zap.Error(err))
+		} else {
+			logDev("Decoded genesis hash: %x", genesisHashBytes)
+		}
+	}
+
+	// Set the genesis hash on the chain watcher (before any writes)
+	kregistry.SetGenesisHash(genesisHashBytes)
+	logDev("Initialized genesis hash for chain watcher")
+
+	return genesisHashBytes
+}
+
 func startHashChainWatcher(d *Defaults, logger *zap.SugaredLogger) {
 	logDev := mutil.LogWithPrefix("dev - startHashChainWatcher")
 
@@ -586,7 +613,7 @@ func startHashChainWatcher(d *Defaults, logger *zap.SugaredLogger) {
 	}
 }
 
-func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
+func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger, genesisHash []byte) {
 	logDev := mutil.LogWithPrefix("dev - publishEnclavePublicKey")
 
 	// Store enclave public key with hash chain for tamper-evident audit log
@@ -595,22 +622,39 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger) {
 		return
 	}
 
-	// Construct the payload with public key and attestation report
-	payload := &kregistry.AttestedPublicKey{
-		PublicKey:   d.KeyRegistry.EnclavePublicKey,
-		Attestation: d.Env.EnclaveAttestationReport,
-	}
-
-	// Construct the data key
-	dataKey := kregistry.EnclaveKeysPrefix + d.KeyRegistry.PodId + kregistry.EnclavePublicKeySuffix
-
-	err := d.KeyRegistry.StoreWithHashChainAndRetry(dataKey, payload, 5)
+	// Use the verified storage function which:
+	// 1. Verifies the entire chain before writing (no watcher needed)
+	// 2. Updates the watcher's verified state after successful write
+	// 3. Handles retries with exponential backoff
+	err := d.KeyRegistry.StoreEnclavePublicKeyWithRetryVerified(
+		d.KeyRegistry.PodId,
+		d.KeyRegistry.EnclavePublicKey,
+		d.KeyRegistry.EnclavePrivateKey,
+		d.Env.EnclaveAttestationReport,
+		genesisHash,
+		100, // High retry count for startup conflicts
+	)
 	if err != nil {
-		logger.Warnw("Failed to store enclave public key with hash chain", zap.Error(err))
+		// This is fatal - without the enclave public key, other pods cannot verify
+		// any entries from this pod, which will break hash chain verification.
+		logger.Fatalw("Failed to store enclave public key with hash chain after all retries",
+			zap.Error(err),
+			zap.String("podID", d.KeyRegistry.PodId))
 	} else {
 		logger.Infow("Successfully stored enclave public key with hash chain",
 			zap.String("podID", d.KeyRegistry.PodId),
 			zap.Int("attestationBytes", len(d.Env.EnclaveAttestationReport)))
+
+		// Mark that our enclave public key is now published.
+		// This allows deferred member key processing to proceed.
+		kregistry.MarkEnclavePublicKeyPublished()
+		logDev("Marked enclave public key as published")
+
+		// Process any member keys that were received while waiting for our public key.
+		// These were queued because we couldn't write re-encryption keys without
+		// other pods being able to verify our signatures.
+		// Run in goroutine to avoid blocking the main flow.
+		go d.KeyRegistry.ProcessPendingMemberKeys()
 	}
 }
 
@@ -813,11 +857,24 @@ func Main(opts ...Option) error {
 	<-d.KeyRegistry.IsEtcdReady
 	d.KeyRegistry.FetchStaticFunctionChains()
 
-	// start hash chain watcher to continuously verify chain integrity
-	startHashChainWatcher(&d, logger)
+	// CRITICAL: Initialize genesis hash BEFORE any writes to the hash chain.
+	// This ensures the first entry uses the correct genesis hash as prev_digest.
+	genesisHashBytes := initGenesisHash(&d, logger)
 
-	// publish enclave public key for this pod
-	publishEnclavePublicKey(&d, logger)
+	// Publish enclave public key FIRST, using verified storage.
+	// The StoreEnclavePublicKeyWithRetryVerified function:
+	// 1. Verifies the entire chain before writing (no watcher needed)
+	// 2. Updates the watcher's verified state after successful write
+	// 3. Handles retries with exponential backoff
+	//
+	// This solves the chicken-and-egg problem: we can publish our key without
+	// the watcher running, and the watcher will start from the already-verified state.
+	publishEnclavePublicKey(&d, logger, genesisHashBytes)
+
+	// Start hash chain watcher AFTER publishing enclave public key.
+	// The watcher continues from the state already verified during publish.
+	// It will process any member keys that arrive after our public key is published.
+	startHashChainWatcher(&d, logger)
 
 	// is pod read for proxy re-encryption?
 	// wait until this pod becomes the leader or joins as a member
