@@ -70,6 +70,13 @@ const (
 	EnclavePublicKeySuffix = "/attested-publicKey"
 )
 
+// formatEntryKey returns the etcd key for a hash chain entry at the given index.
+// Uses zero-padded 20-digit format to ensure lexicographic order matches numeric order.
+// This is critical because etcd range queries use lexicographic ordering.
+func formatEntryKey(idx uint64) string {
+	return fmt.Sprintf("%s%020d", HashChainEntryPrefix, idx)
+}
+
 // VerifiedPublicKeyCache caches writer public keys that have been verified
 // (attestation + data signature). This avoids re-fetching and re-verifying
 // the same public key multiple times during chain verification.
@@ -106,6 +113,99 @@ const (
 type SealedVerifiedState struct {
 	VerifiedIdx    uint64 `json:"verified_idx"`
 	VerifiedDigest []byte `json:"verified_digest"`
+}
+
+// SealedEnclaveKeypair is the struct serialized for sealed keypair storage.
+// This allows pods to persist their enclave keypair across restarts so they
+// can verify their own old entries in the hash chain.
+type SealedEnclaveKeypair struct {
+	PublicKey         []byte `json:"public_key"`
+	PrivateKey        []byte `json:"private_key"`
+	AttestationReport []byte `json:"attestation_report"`
+}
+
+// SealEnclaveKeypair persists the enclave keypair to disk using EGO sealing.
+// The keypair is sealed with the enclave's product key, allowing it to survive
+// enclave restarts as long as the signing key remains the same.
+// Filename format: <podId>_keypair.sealed
+func SealEnclaveKeypair(podID string, pubKey ed25519.PublicKey, privKey ed25519.PrivateKey, attestationReport []byte) error {
+	logDev := mutil.LogWithPrefix("dev - SealEnclaveKeypair")
+
+	keypair := SealedEnclaveKeypair{
+		PublicKey:         pubKey,
+		PrivateKey:        privKey,
+		AttestationReport: attestationReport,
+	}
+
+	plaintext, err := json.Marshal(keypair)
+	if err != nil {
+		return fmt.Errorf("failed to marshal keypair: %w", err)
+	}
+
+	// Use podID as additional data to bind the sealed data to this pod
+	additionalData := []byte(podID)
+
+	sealed, err := ecrypto.SealWithProductKey(plaintext, additionalData)
+	if err != nil {
+		return fmt.Errorf("failed to seal keypair: %w", err)
+	}
+
+	// Ensure the sealed state directory exists
+	if err := os.MkdirAll(SealedStateDir, 0700); err != nil {
+		return fmt.Errorf("failed to create sealed state directory: %w", err)
+	}
+
+	// Filename format: <podId>_keypair.sealed
+	fileName := fmt.Sprintf("%s_keypair.sealed", podID)
+	filePath := filepath.Join(SealedStateDir, fileName)
+	if err := os.WriteFile(filePath, sealed, 0600); err != nil {
+		return fmt.Errorf("failed to write sealed keypair file: %w", err)
+	}
+
+	logDev("Sealed enclave keypair: podID=%s, file=%s", podID, filePath)
+	return nil
+}
+
+// UnsealEnclaveKeypair loads the enclave keypair from sealed storage.
+// Returns (nil, nil, nil, nil) if no sealed keypair exists (fresh start).
+func UnsealEnclaveKeypair(podID string) (ed25519.PublicKey, ed25519.PrivateKey, []byte, error) {
+	logDev := mutil.LogWithPrefix("dev - UnsealEnclaveKeypair")
+
+	// Filename format: <podId>_keypair.sealed
+	fileName := fmt.Sprintf("%s_keypair.sealed", podID)
+	filePath := filepath.Join(SealedStateDir, fileName)
+
+	sealed, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logDev("No sealed keypair found for podID=%s (fresh start)", podID)
+			return nil, nil, nil, nil
+		}
+		return nil, nil, nil, fmt.Errorf("failed to read sealed keypair file: %w", err)
+	}
+
+	// Use podID as additional data (must match what was used during sealing)
+	additionalData := []byte(podID)
+
+	plaintext, err := ecrypto.Unseal(sealed, additionalData)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to unseal keypair: %w", err)
+	}
+
+	var keypair SealedEnclaveKeypair
+	if err := json.Unmarshal(plaintext, &keypair); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to unmarshal keypair: %w", err)
+	}
+
+	if len(keypair.PublicKey) != ed25519.PublicKeySize {
+		return nil, nil, nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(keypair.PublicKey))
+	}
+	if len(keypair.PrivateKey) != ed25519.PrivateKeySize {
+		return nil, nil, nil, fmt.Errorf("invalid private key size: expected %d, got %d", ed25519.PrivateKeySize, len(keypair.PrivateKey))
+	}
+
+	logDev("Unsealed enclave keypair: podID=%s", podID)
+	return ed25519.PublicKey(keypair.PublicKey), ed25519.PrivateKey(keypair.PrivateKey), keypair.AttestationReport, nil
 }
 
 // sealVerifiedState persists the verified state to disk using EGO sealing.
@@ -617,7 +717,7 @@ func (kr *KeyRegistry) StoreWithHashChainAndRetry(
 		// Check if it's a conflict error (retryable)
 		if strings.Contains(err.Error(), "transaction conflict") {
 			sleepDuration := addJitter(backoff)
-			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter)", attempt+1, sleepDuration)
+			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter), dataKey: %s", attempt+1, sleepDuration, dataKey)
 			time.Sleep(sleepDuration)
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 			continue
@@ -669,7 +769,7 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 		return false, fmt.Errorf("failed to marshal head record: %w", err)
 	}
 
-	entryKey := HashChainEntryPrefix + strconv.FormatUint(entry.Idx, 10)
+	entryKey := formatEntryKey(entry.Idx)
 
 	var txnResp *clientv3.TxnResponse
 
@@ -825,6 +925,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	return nil
 }
 
+// UNUSED
 // StoreEnclavePublicKeyWithRetry stores an enclave public key with hash chain, retrying on conflicts.
 // Implements exponential backoff with jitter (100ms initial, 5s max).
 // The public key and attestation report are packed together as an AttestedPublicKey.
@@ -854,7 +955,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 		// Check if it's a conflict error (retryable)
 		if strings.Contains(err.Error(), "transaction conflict") {
 			sleepDuration := addJitter(backoff)
-			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter)", attempt+1, sleepDuration)
+			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter), dataKey: %s", attempt+1, sleepDuration, "enclavePublicKey")
 			time.Sleep(sleepDuration)
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 			continue
@@ -1070,7 +1171,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
 		// Check if it's a conflict error (retryable)
 		if strings.Contains(err.Error(), "transaction conflict") {
 			sleepDuration := addJitter(backoff)
-			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter)", attempt+1, sleepDuration)
+			logDev("Transaction conflict on attempt %d, retrying after %v (with jitter), dataKey: %s", attempt+1, sleepDuration, "enclavePublicKey")
 			time.Sleep(sleepDuration)
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 			continue

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,9 +102,19 @@ func IsEnclavePublicKeyPublished() bool {
 // addPendingKeyRecord adds a key record to the pending queue for later processing.
 // This is called when key records are received before the enclave public key is published.
 // keyType should be "leader", "member", or "reencryption".
+// Skips adding if a record with the same dataKey already exists (deduplication).
 func addPendingKeyRecord(dataKey string, dataRecord *HashChainDataRecord, writerID string, keyType string) {
 	chainWatcher.pendingMu.Lock()
 	defer chainWatcher.pendingMu.Unlock()
+
+	// Check if this dataKey is already in the pending queue
+	for _, existing := range chainWatcher.pendingRecords {
+		if existing.DataKey == dataKey {
+			// Already queued, skip duplicate
+			return
+		}
+	}
+
 	chainWatcher.pendingRecords = append(chainWatcher.pendingRecords, PendingKeyRecord{
 		DataKey:    dataKey,
 		DataRecord: dataRecord,
@@ -117,6 +126,8 @@ func addPendingKeyRecord(dataKey string, dataRecord *HashChainDataRecord, writer
 // ProcessPendingKeyRecords processes all pending key records that were queued
 // while waiting for the enclave public key to be published.
 // This should be called after MarkEnclavePublicKeyPublished().
+// Uses processAllVerifiedKeys() for consistent routing logic.
+// Deduplicates by dataKey to prevent multiple goroutines writing the same key.
 func (kr *KeyRegistry) ProcessPendingKeyRecords() {
 	logDev := mutil.LogWithPrefix("dev - ProcessPendingKeyRecords")
 
@@ -130,15 +141,17 @@ func (kr *KeyRegistry) ProcessPendingKeyRecords() {
 		return
 	}
 
-	logDev("Processing %d pending key records", len(pending))
+	// Deduplicate by dataKey - keep only the latest record for each unique key
+	// This prevents multiple goroutines from trying to write the same key
+	deduped := make(map[string]PendingKeyRecord)
 	for _, record := range pending {
-		logDev("Processing deferred %s key: %s", record.KeyType, record.DataKey)
-		switch record.KeyType {
-		case "leader":
-			kr.processVerifiedLeaderKeysInternal(record.DataKey, record.DataRecord, record.WriterID)
-		case "member":
-			kr.processVerifiedMemberKeysInternal(record.DataKey, record.DataRecord, record.WriterID)
-		}
+		deduped[record.DataKey] = record
+	}
+
+	logDev("Processing %d pending key records (%d after dedup)", len(pending), len(deduped))
+	for _, record := range deduped {
+		// Use the same routing logic as normal chain verification
+		kr.processAllVerifiedKeys(record.DataKey, record.DataRecord, record.WriterID)
 	}
 	logDev("Finished processing pending key records")
 }
@@ -569,9 +582,10 @@ func verifyEntryAndDataParallel(
 
 // batchFetchEntries fetches multiple entries in a single etcd range query.
 // Returns entries sorted by index.
+// Uses zero-padded keys to ensure lexicographic order matches numeric order.
 func (kr *KeyRegistry) batchFetchEntries(ctx context.Context, startIdx, endIdx uint64) ([]*HashChainEntry, error) {
-	startKey := HashChainEntryPrefix + strconv.FormatUint(startIdx, 10)
-	endKey := HashChainEntryPrefix + strconv.FormatUint(endIdx+1, 10)
+	startKey := formatEntryKey(startIdx)
+	endKey := formatEntryKey(endIdx + 1)
 
 	resp, err := kr.Client().Get(ctx, startKey, clientv3.WithRange(endKey))
 	if err != nil {
@@ -989,6 +1003,13 @@ func (kr *KeyRegistry) processVerifiedLeaderKeys(dataKey string, dataRecord *Has
 		return
 	}
 
+	// Only process leader keys from my leader
+	myLeaderId := kr.SafeReadMemLeaderId()
+	if myLeaderId != "" && keyInfo.LeaderPodID != myLeaderId {
+		logDev("Leader key is from %s, not my leader (%s), skipping", keyInfo.LeaderPodID, myLeaderId)
+		return
+	}
+
 	// Check if our enclave public key has been published.
 	// If not, we must defer processing because when we store our member public key,
 	// other pods won't be able to verify the signature (they don't have our public key yet).
@@ -1090,7 +1111,7 @@ func (kr *KeyRegistry) processVerifiedLeaderKeysInternal(dataKey string, dataRec
 		memPubKeyLabel := "members/" + leaderPodId + "/publicKey/" + kr.PodId
 		memberPks := new(samba.PublicKeySerialized)
 		memberPks.Serialize(keyPair.PK)
-		err = kr.StoreWithHashChainAndRetry(memPubKeyLabel, memberPks, 5)
+		err = kr.StoreWithHashChainAndRetry(memPubKeyLabel, memberPks, 100)
 		if err != nil {
 			logDev("Failed to store member public key with hash chain: %v", err)
 			return
@@ -1328,7 +1349,7 @@ func (kr *KeyRegistry) processVerifiedMemberKeysInternal(dataKey string, dataRec
 	// Serialize the re-encryption key properly before storing
 	reks := new(samba.ReEncryptionKeySerialized)
 	reks.Serialize(reEncryptionKey)
-	err = kr.StoreWithHashChainAndRetry(memReEncKeyLabel, reks, 5)
+	err = kr.StoreWithHashChainAndRetry(memReEncKeyLabel, reks, 100)
 	if err != nil {
 		logDev("Failed to store member re-encryption key with hash chain: %v", err)
 		return

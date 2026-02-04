@@ -333,7 +333,7 @@ func TryAcquireLease(d *Defaults) {
 				// Must serialize curve points properly before JSON marshaling
 				pks := new(samba.PublicKeySerialized)
 				pks.Serialize(keyPair.PK)
-				err = d.KeyRegistry.StoreWithHashChainAndRetry(lPublicKeyLabel, pks, 5)
+				err = d.KeyRegistry.StoreWithHashChainAndRetry(lPublicKeyLabel, pks, 100)
 				if err != nil {
 					logDev("Error storing public key with hash chain: %v", err)
 				} else {
@@ -344,7 +344,7 @@ func TryAcquireLease(d *Defaults) {
 				// Must serialize curve points properly before JSON marshaling
 				pps := new(samba.PublicParamsSerialized)
 				pps.Serialize(pp)
-				err = d.KeyRegistry.StoreWithHashChainAndRetry(lPublicParamsLabel, pps, 5)
+				err = d.KeyRegistry.StoreWithHashChainAndRetry(lPublicParamsLabel, pps, 100)
 				if err != nil {
 					logDev("Error storing public params with hash chain: %v", err)
 				} else {
@@ -421,11 +421,50 @@ func initEtcdWithRetry(d *Defaults) {
 	d.KeyRegistry.InitEtcdWithRetry()
 }
 
-// generateEnclaveKeypair generates a new Ed25519 keypair for signing hashes within the enclave
-// and creates an attestation report binding the public key and podId (writerId) to the enclave.
+// generateEnclaveKeypair generates or loads an Ed25519 keypair for signing hashes within the enclave.
+// It first tries to load a sealed keypair from disk (to survive pod restarts).
+// If no sealed keypair exists, it generates a new one and seals it for future restarts.
+// The attestation report binds the public key and podId (writerId) to the enclave.
 // The report data is: SHA256(podId || publicKey)
 func generateEnclaveKeypair(env *Env) {
 	logDev := mutil.LogWithPrefix("dev - generateEnclaveKeypair")
+
+	podId := env.ServingPod
+	if podId == "" {
+		logDev("ServingPod not set, generating keypair without persistence")
+		generateNewKeypair(env, podId)
+		return
+	}
+
+	// Try to load existing sealed keypair first
+	pubKey, privKey, attestationReport, err := kregistry.UnsealEnclaveKeypair(podId)
+	if err != nil {
+		logDev("Error unsealing keypair (will generate new): %v", err)
+	}
+
+	if pubKey != nil && privKey != nil {
+		// Successfully loaded existing keypair
+		env.EnclavePublicKey = pubKey
+		env.EnclavePrivateKey = privKey
+		env.EnclaveAttestationReport = attestationReport
+		logDev("Loaded sealed enclave keypair for podId=%s (public key: %d bytes)", podId, len(pubKey))
+		return
+	}
+
+	// No existing keypair, generate new one
+	generateNewKeypair(env, podId)
+
+	// Seal the new keypair for future restarts
+	if env.EnclavePublicKey != nil && env.EnclavePrivateKey != nil {
+		if err := kregistry.SealEnclaveKeypair(podId, env.EnclavePublicKey, env.EnclavePrivateKey, env.EnclaveAttestationReport); err != nil {
+			logDev("Warning: failed to seal keypair (pod restart will generate new keys): %v", err)
+		}
+	}
+}
+
+// generateNewKeypair creates a new Ed25519 keypair and attestation report.
+func generateNewKeypair(env *Env, podId string) {
+	logDev := mutil.LogWithPrefix("dev - generateNewKeypair")
 
 	pubKey, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -437,9 +476,6 @@ func generateEnclaveKeypair(env *Env) {
 	env.EnclavePrivateKey = privKey
 	logDev("Successfully generated enclave Ed25519 keypair (public key: %d bytes)", len(pubKey))
 
-	// Generate attestation report binding podId (writerId) and public key to the enclave
-	// This allows verifiers to confirm the public key was generated inside a legitimate enclave
-	podId := env.ServingPod
 	if podId == "" {
 		logDev("ServingPod not set, skipping attestation report generation")
 		return
