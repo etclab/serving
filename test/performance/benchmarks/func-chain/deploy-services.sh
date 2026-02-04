@@ -31,11 +31,11 @@ fi
 
 # Validate strategy
 case "$STRATEGY" in
-  knative|efunction|rsa-efunction|leader-efunction|member-efunction|both|both-sig)
+  knative|efunction|rsa-efunction|leader-efunction|member-efunction|both|both-sig|both-hash-chain-sig)
     ;;
   *)
     echo "Error: Unknown strategy: $STRATEGY"
-    echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig"
+    echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig, both-hash-chain-sig"
     exit 1
     ;;
 esac

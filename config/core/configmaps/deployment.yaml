@@ -140,8 +140,3 @@ data:
     #     selector:
     #       use-gvisor: "please"
     runtime-class-name: ""
-
-    # Enable SGX QCNL volume mount for queue-proxy containers.
-    # Set to "false" for AKS/cloud deployments where QCNL config is not needed.
-    # Default is "true" (enabled for local/minikube environments).
-    enable-qcnl-volume-mount: "true"

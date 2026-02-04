@@ -12,7 +12,7 @@ source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 export KO_DOCKER_REPO='docker.io/atosh502'
 
 # All available strategies
-ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "member-efunction" "leader-efunction" "both" "both-sig")
+ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "member-efunction" "leader-efunction" "both" "both-sig" "both-hash-chain-sig")
 
 # ConfigMap containing queue-sidecar-image config
 CONFIGMAP_NAME="config-deployment"
@@ -26,6 +26,7 @@ export USE_AKS=${USE_AKS:-false}
 # Use AKS-specific images (no QCNL volume mount) when USE_AKS=true
 QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
 QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
+QUEUE_IMAGE_EGO_PRE_HASH_CHAIN="docker.io/atosh502/queue-proxy-ego-pre:latest"
 
 # Functions to get/set queue-sidecar-image via kubectl
 get_queue_sidecar_image() {
@@ -47,7 +48,7 @@ echo "Original queue-sidecar-image: $ORIGINAL_QUEUE_IMAGE"
 # Cleanup function to restore original image on exit
 cleanup() {
     echo "Restoring original queue-sidecar-image..."
-    set_queue_sidecar_image "$ORIGINAL_QUEUE_IMAGE"
+    # set_queue_sidecar_image "$ORIGINAL_QUEUE_IMAGE"
 }
 trap cleanup EXIT
 
@@ -63,6 +64,9 @@ get_queue_image_for_strategy() {
             ;;
         rsa-efunction|member-efunction|leader-efunction|both|both-sig)
             echo "$QUEUE_IMAGE_EGO_PRE"
+            ;;
+        both-hash-chain-sig)
+            echo "$QUEUE_IMAGE_EGO_PRE_HASH_CHAIN"
             ;;
         *)
             echo ""
@@ -171,8 +175,8 @@ function run_benchmark_for_strategy() {
     echo "Using default queue-sidecar-image for strategy: $strategy"
   fi
 
-  echo "Running dev/setup.sh to apply configuration..."
-  "$REPO_ROOT/dev/setup.sh"
+  # echo "Running dev/setup.sh to apply configuration..."
+  # "$REPO_ROOT/dev/setup.sh"
 
   # Deploy services for the strategy
   if [[ "${SKIP_DEPLOY:-false}" != "true" ]]; then

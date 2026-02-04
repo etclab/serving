@@ -240,7 +240,7 @@ func getEncryptedMessage(msgBytes []byte) []byte {
 			log.Fatalf("failed to encrypt message using RSA: %v", err.Error())
 		}
 
-	case "member-efunction", "leader-efunction", "both", "both-sig":
+	case "member-efunction", "leader-efunction", "both", "both-sig", "both-hash-chain-sig":
 		// Parse PRE keys once
 		preKeysOnce.Do(func() {
 			pps := os.Getenv("LEADER_PP")

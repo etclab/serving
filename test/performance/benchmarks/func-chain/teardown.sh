@@ -15,11 +15,11 @@ echo "==========================================="
 
 # Validate strategy
 case "$STRATEGY" in
-  knative|efunction|rsa-efunction|leader-efunction|member-efunction|both|both-sig|all)
+  knative|efunction|rsa-efunction|leader-efunction|member-efunction|both|both-sig|both-hash-chain-sig|all)
     ;;
   *)
     echo "Error: Unknown strategy: $STRATEGY"
-    echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig, all"
+    echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig, both-hash-chain-sig, all"
     exit 1
     ;;
 esac
@@ -76,5 +76,8 @@ kubectl delete leases --all -n "$ns" --ignore-not-found=true
 # Wait for leases to be released
 echo "Waiting for leases to be released..."
 kubectl wait --for=delete leases --all -n "$ns" --timeout=60s 2>/dev/null || true
+
+# Clear sealed state files from minikube node
+minikube ssh -- sudo rm -rf /var/lib/sealed-state/*
 
 echo "Teardown complete."

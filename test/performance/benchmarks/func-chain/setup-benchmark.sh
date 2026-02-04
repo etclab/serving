@@ -39,6 +39,10 @@ kubectl create secret generic performance-test-config -n default \
   --from-literal=jobname="${JOB_NAME:-local}" \
   --from-literal=buildid="${BUILD_ID:-local}"
 
+tmux kill-session -t socat-proxy 2>/dev/null || true
+# Port forward to access the local PCCS server from within the cluster
+tmux new-session -d -s socat-proxy 'socat TCP-LISTEN:8081,bind=192.168.49.1,fork,reuseaddr TCP:127.0.0.1:8081'
+
 echo "=========================================="
 echo "Cluster setup complete."
 echo "=========================================="
@@ -47,4 +51,4 @@ echo "Next steps:"
 echo "  1. Deploy services: ./deploy-services.sh <strategy>"
 echo "  2. Run benchmark:   ./run-benchmark.sh <strategy> <rate> <duration>"
 echo ""
-echo "Available strategies: baseline, efunction, leader-efunction, member-efunction, both, both-sig"
+echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig, both-hash-chain-sig"

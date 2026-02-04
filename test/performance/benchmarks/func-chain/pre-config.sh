@@ -129,9 +129,17 @@ case "$STRATEGY" in
     VERIFY_SIGNATURE="true"
     DISABLE_LOGGING="true"
     ;;
+  # both-hash-chain-sig verifies signatures and uses hash chain for leader key verification
+  both-hash-chain-sig)
+    FUNCTION_CHAIN="$FUNCTION_CHAIN_EFUNCTION"
+    FUNCTION_MODE="CHAIN"
+    ATTACH_SIGNATURE="true"
+    VERIFY_SIGNATURE="false"
+    DISABLE_LOGGING="false"
+    ;;
   *)
     echo "Unknown strategy: $STRATEGY"
-    echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig"
+    echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig, both-hash-chain-sig"
     exit 1
     ;;
 esac

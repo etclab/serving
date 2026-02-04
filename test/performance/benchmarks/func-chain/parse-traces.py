@@ -39,7 +39,8 @@ STRATEGY_SUFFIX = {
     "leader-efunction": "-leader",
     "member-efunction": "-member",
     "both": "",
-    "both-sig": ""
+    "both-sig": "",
+    "both-hash-chain-sig": ""
 }
 
 
