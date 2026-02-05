@@ -136,6 +136,7 @@ case "$STRATEGY" in
     ATTACH_SIGNATURE="true"
     VERIFY_SIGNATURE="false"
     DISABLE_LOGGING="false"
+    FLOW_TRACKING_ENABLED="true"
     ;;
   *)
     echo "Unknown strategy: $STRATEGY"
@@ -165,6 +166,7 @@ SECRET_ARGS=(
   "--from-literal=verify_signature=${VERIFY_SIGNATURE}"
   "--from-literal=signature_pp=${SIGNATURE_PP}"
   "--from-literal=disable_logging=${DISABLE_LOGGING}"
+  "--from-literal=flow_tracking_enabled=${FLOW_TRACKING_ENABLED:-false}"
 )
 
 # Only include RSA_SK for rsa-efunction strategy

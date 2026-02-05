@@ -263,6 +263,10 @@
     {
         "name": "FUNCTION_CHAIN",
         "fromHost": true
+    },
+    {
+        "name": "FLOW_TRACKING_ENABLED",
+        "fromHost": true
     } 
  ],
  "files": [

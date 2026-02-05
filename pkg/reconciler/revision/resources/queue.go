@@ -652,6 +652,17 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 						Optional: ptr.Bool(true),
 					},
 				},
+			}, {
+				Name: "FLOW_TRACKING_ENABLED",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "pre-config",
+						},
+						Key:      "flow_tracking_enabled",
+						Optional: ptr.Bool(true),
+					},
+				},
 			},
 		},
 	}

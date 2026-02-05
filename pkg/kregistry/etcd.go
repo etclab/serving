@@ -1569,6 +1569,18 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	resp.Header.Set("Ce-Aggsignature", sigHex)
 	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
 
+	// If flow tracking was enabled, pass the chain index back in response header
+	if resp.Request != nil {
+		flowChainIndex := resp.Request.Header.Get(FlowChainIndexHeader)
+		flowTrackingEnabled := resp.Request.Header.Get(FlowTrackingEnabledHeader)
+		if flowTrackingEnabled == "true" && flowChainIndex != "" {
+			resp.Header.Set("Ce-Flowchainindex", flowChainIndex)
+			logDev("Set Ce-Flowchainindex: %s", flowChainIndex)
+		} else {
+			logDev("Flow tracking not enabled or flow chain index missing, not setting Ce-Flowchainindex header")
+		}
+	}
+
 	return nil
 }
 

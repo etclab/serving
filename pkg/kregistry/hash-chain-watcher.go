@@ -50,6 +50,11 @@ type HashChainWatcher struct {
 	verifiedEntries     map[uint64]*HashChainEntry      // Verified entries by idx
 	verifiedDataRecords map[string]*HashChainDataRecord // Verified data records by dataKey
 
+	// Flow tracking - maps flowID -> serviceName -> chainIndex
+	// Used for replay detection: if (flowID, serviceName) exists, that service already processed that flow
+	verifiedFlows map[string]map[string]uint64
+	muFlows       sync.RWMutex
+
 	// Pending records for deferred processing (separate mutex from verified state)
 	pendingMu      sync.Mutex
 	pendingRecords []PendingKeyRecord // Key records awaiting processing
@@ -65,6 +70,7 @@ var chainWatcher = &HashChainWatcher{
 	verifiedHeads:       make(map[uint64]*HashChainHead),
 	verifiedEntries:     make(map[uint64]*HashChainEntry),
 	verifiedDataRecords: make(map[string]*HashChainDataRecord),
+	verifiedFlows:       make(map[string]map[string]uint64),
 }
 
 // GetVerifiedState returns the current verified state from the watcher.
@@ -412,11 +418,14 @@ func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
 	// Update watcher state with verified entries and data records
 	UpdateWatcherWithVerifiedEntries(result)
 
-	// Process leader, member, and re-encryption keys from catch-up entries (non-blocking)
+	// Process leader, member, re-encryption keys, and flow records from catch-up entries
 	// This is independent of chain validation and can run in separate goroutines
 	for dataKey, dataRecord := range result.DataRecords {
 		entry := result.Entries[dataRecord.Idx]
 		if entry != nil {
+			// Process flow records for replay detection
+			processFlowRecordIfNeeded(dataKey, entry.Idx)
+			// Process key records (non-blocking)
 			kr.processAllVerifiedKeys(dataKey, dataRecord, entry.WriterID)
 		}
 	}
@@ -739,6 +748,9 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 	chainWatcher.updateVerifiedStateLocked(entry.Idx, newDigest, headModRev, head)
 	chainWatcher.storeVerifiedEntryLocked(&entry, dataRecord)
 
+	// Check if this is a flow record and store for replay detection
+	processFlowRecordIfNeeded(entry.DataKey, entry.Idx)
+
 	// Seal state for persistence
 	if kr.PodId != "" && kr.FunctionId != "" {
 		if err := sealVerifiedState(kr.PodId, kr.FunctionId, entry.Idx, newDigest); err != nil {
@@ -885,6 +897,57 @@ func (w *HashChainWatcher) storeVerifiedEntryLocked(entry *HashChainEntry, dataR
 	if dataRecord != nil && entry != nil {
 		w.verifiedDataRecords[entry.DataKey] = dataRecord
 	}
+}
+
+// ============================================================
+// Flow Tracking Functions
+// ============================================================
+
+// IsFlowVerified checks if a flow has been verified for a specific service.
+// Returns (chainIndex, found) where found is true if the flow was processed by this service.
+// This is used for replay detection - if found is true, the service already processed this flow.
+func IsFlowVerified(flowID, serviceName string) (uint64, bool) {
+	chainWatcher.muFlows.RLock()
+	defer chainWatcher.muFlows.RUnlock()
+
+	if flowID == "" || serviceName == "" {
+		return 0, false
+	}
+
+	serviceMap, exists := chainWatcher.verifiedFlows[flowID]
+	if !exists {
+		return 0, false
+	}
+
+	chainIdx, found := serviceMap[serviceName]
+	return chainIdx, found
+}
+
+// storeVerifiedFlowLocked stores a verified flow record in the watcher's flow tracking map.
+// This must be called with muFlows lock held.
+func (w *HashChainWatcher) storeVerifiedFlowLocked(flowID, serviceName string, chainIdx uint64) {
+	if flowID == "" || serviceName == "" {
+		return
+	}
+
+	if w.verifiedFlows[flowID] == nil {
+		w.verifiedFlows[flowID] = make(map[string]uint64)
+	}
+	w.verifiedFlows[flowID][serviceName] = chainIdx
+}
+
+// processFlowRecordIfNeeded checks if a data key is a flow record and stores it in verifiedFlows.
+// This is called after verifying an entry to track flow processing for replay detection.
+func processFlowRecordIfNeeded(dataKey string, chainIdx uint64) {
+	flowID, serviceName := parseFlowDataKey(dataKey)
+	if flowID == "" || serviceName == "" {
+		return // Not a flow record
+	}
+
+	chainWatcher.muFlows.Lock()
+	defer chainWatcher.muFlows.Unlock()
+
+	chainWatcher.storeVerifiedFlowLocked(flowID, serviceName, chainIdx)
 }
 
 // processAllVerifiedKeys processes leader, member, or re-encryption keys for a verified data record.

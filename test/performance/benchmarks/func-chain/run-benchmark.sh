@@ -178,6 +178,9 @@ function run_benchmark_for_strategy() {
   # echo "Running dev/setup.sh to apply configuration..."
   # "$REPO_ROOT/dev/setup.sh"
 
+  echo "Setting up etcd for key registry..."
+  "$REPO_ROOT/dev/setup-etcd.sh"
+
   # Deploy services for the strategy
   if [[ "${SKIP_DEPLOY:-false}" != "true" ]]; then
     USE_AKS="$USE_AKS" "$SCRIPT_DIR/deploy-services.sh" "$strategy"

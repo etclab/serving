@@ -1214,6 +1214,32 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		logDev("Skipping signature verification as VERIFY_SIGNATURE is %v.", os.Getenv("VERIFY_SIGNATURE"))
 	}
 
+	// Flow tracking: record that this service processed this message (nonce/flowID)
+	// This enables replay detection - if the same flow is processed twice by the same service, reject it
+	if os.Getenv("FLOW_TRACKING_ENABLED") == "true" && nonce != "" {
+		logDev("Flow tracking enabled, processing flow: %s", nonce)
+
+		// 1. Check for replay (this service already processed this flow)
+		if _, found := kregistry.IsFlowVerified(nonce, d.KeyRegistry.ServiceName); found {
+			logDev("Replay detected: flow %s already processed by service %s", nonce, d.KeyRegistry.ServiceName)
+			return nil, fmt.Errorf("replay detected: flow %s already processed by this service", nonce)
+		}
+
+		// 2. Record this service's processing in the hash chain
+		chainIdx, err := d.KeyRegistry.RecordFlowProcessing(nonce)
+		if err != nil {
+			logDev("Failed to record flow processing: %v", err)
+			return nil, fmt.Errorf("failed to record flow processing: %w", err)
+		}
+		logDev("Recorded flow processing: flowID=%s, chainIdx=%d", nonce, chainIdx)
+
+		// 3. Pass index to EncryptResponseBody via internal headers
+		req.Header.Set(kregistry.FlowChainIndexHeader, fmt.Sprintf("%d", chainIdx))
+		req.Header.Set(kregistry.FlowTrackingEnabledHeader, "true")
+	} else {
+		logDev("Flow tracking disabled or nonce missing, skipping flow processing.")
+	}
+
 	if funChain == "" {
 		funChain = d.KeyRegistry.PodId
 	} else {

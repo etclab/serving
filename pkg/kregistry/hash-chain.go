@@ -68,7 +68,25 @@ const (
 	HashChainEntryPrefix   = "lambada/audit/entry/"
 	EnclaveKeysPrefix      = "enclave-keys/"
 	EnclavePublicKeySuffix = "/attested-publicKey"
+	FlowMessagesPrefix     = "messages/"
 )
+
+// Flow tracking header constants
+const (
+	// FlowChainIndexHeader is the internal header used to pass chain index from RoundTrip to EncryptResponseBody
+	FlowChainIndexHeader = "X-Flow-Chain-Index"
+	// FlowTrackingEnabledHeader is the internal header flag that flow tracking occurred
+	FlowTrackingEnabledHeader = "X-Flow-Tracking-Enabled"
+)
+
+// FlowRecord represents a flow processing record stored in the hash chain.
+// Each service records its processing of a message (identified by flowID/nonce).
+type FlowRecord struct {
+	FlowID      string `json:"flow_id"`
+	ServiceName string `json:"service_name"`
+	PodID       string `json:"pod_id"`
+	Timestamp   int64  `json:"timestamp"`
+}
 
 // formatEntryKey returns the etcd key for a hash chain entry at the given index.
 // Uses zero-padded 20-digit format to ensure lexicographic order matches numeric order.
@@ -1189,4 +1207,83 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
 	}
 
 	return fmt.Errorf("failed to store enclave public key with verified chain after %d attempts", maxRetries)
+}
+
+// ============================================================
+// Flow Tracking Functions
+// ============================================================
+
+// formatFlowDataKey returns the etcd key for a flow record.
+// Key format: messages/{flow_id}/{service_name}
+// Example: messages/1738627200/validate-fun
+func formatFlowDataKey(flowID, serviceName string) string {
+	return fmt.Sprintf("%s%s/%s", FlowMessagesPrefix, flowID, serviceName)
+}
+
+// parseFlowDataKey extracts flowID and serviceName from a flow data key.
+// Returns empty strings if the key doesn't match the expected format.
+func parseFlowDataKey(dataKey string) (flowID, serviceName string) {
+	if !strings.HasPrefix(dataKey, FlowMessagesPrefix) {
+		return "", ""
+	}
+
+	// Remove "messages/" prefix
+	rest := strings.TrimPrefix(dataKey, FlowMessagesPrefix)
+
+	// Split: flow_id/service_name
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+
+	return parts[0], parts[1]
+}
+
+// isFlowDataKey checks if a data key is a flow record key.
+func isFlowDataKey(dataKey string) bool {
+	return strings.HasPrefix(dataKey, FlowMessagesPrefix)
+}
+
+// RecordFlowProcessing stores a flow processing record in the hash chain.
+// This records that this service (kr.ServiceName) has processed the given flowID.
+// Returns the chain index where the record was stored, or an error.
+//
+// This is called during RoundTrip to record each message processed by this service,
+// enabling replay detection (same flow processed twice by same service = replay).
+func (kr *KeyRegistry) RecordFlowProcessing(flowID string) (uint64, error) {
+	logDev := mutil.LogWithPrefix("dev - RecordFlowProcessing")
+
+	if flowID == "" {
+		return 0, fmt.Errorf("flowID is empty")
+	}
+	if kr.ServiceName == "" {
+		return 0, fmt.Errorf("service name is not set")
+	}
+
+	dataKey := formatFlowDataKey(flowID, kr.ServiceName)
+
+	flowRecord := &FlowRecord{
+		FlowID:      flowID,
+		ServiceName: kr.ServiceName,
+		PodID:       kr.PodId,
+		Timestamp:   time.Now().Unix(),
+	}
+
+	logDev("Recording flow processing: flowID=%s, serviceName=%s, dataKey=%s", flowID, kr.ServiceName, dataKey)
+
+	// Store with retry using the existing hash chain storage mechanism
+	err := kr.StoreWithHashChainAndRetry(dataKey, flowRecord, 3)
+	if err != nil {
+		// Check if it's already exists - this means replay detected at storage level
+		if strings.Contains(err.Error(), "already exists") {
+			return 0, fmt.Errorf("replay detected at storage: flow %s already recorded by %s", flowID, kr.ServiceName)
+		}
+		return 0, fmt.Errorf("failed to record flow processing: %w", err)
+	}
+
+	// Get the chain index from watcher state (it's the latest verified index)
+	chainIdx, _, _, _, _ := GetWatcherVerifiedState()
+
+	logDev("Successfully recorded flow processing: flowID=%s, chainIdx=%d", flowID, chainIdx)
+	return chainIdx, nil
 }
