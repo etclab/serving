@@ -20,7 +20,9 @@ import (
 	"github.com/edgelesssys/ego/attestation"
 	"github.com/edgelesssys/ego/ecrypto"
 	"github.com/edgelesssys/ego/enclave"
+	bgls03 "github.com/etclab/ncircl/aggsig/bgls03"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"knative.dev/serving/pkg/bgls"
 	"knative.dev/serving/pkg/mutil"
 )
 
@@ -55,11 +57,20 @@ type HashChainDataRecord struct {
 	DataSig  []byte `json:"data_sig"`
 }
 
-// AttestedPublicKey packs the enclave public key and its attestation report together.
-// This is stored as the Payload in HashChainDataRecord.
+// AttestedPublicKey packs the enclave public key, attestation report, and optionally
+// BGLS signature keys together. This is stored as the Payload in HashChainDataRecord.
+// The attestation report binds all keys together via:
+//   SHA256(podId || ed25519PubKey || SHA256(bglsPkmHash)) if signature is enabled
+//   SHA256(podId || ed25519PubKey) if signature is disabled
 type AttestedPublicKey struct {
+	// Ed25519 public key for hash chain signatures
 	PublicKey   []byte `json:"public_key"`
 	Attestation []byte `json:"attestation"`
+
+	// BGLS03 signature keys (optional - only present when signature is enabled)
+	SignatureEnabled bool   `json:"signature_enabled,omitempty"`
+	SigPpBytes       []byte `json:"sig_pp_bytes,omitempty"` // Serialized bgls03.PublicParams
+	SigPkBytes       []byte `json:"sig_pk_bytes,omitempty"` // Serialized bgls03.PublicKey
 }
 
 // Hash chain key paths
@@ -146,23 +157,77 @@ type SealedVerifiedState struct {
 // SealedEnclaveKeypair is the struct serialized for sealed keypair storage.
 // This allows pods to persist their enclave keypair across restarts so they
 // can verify their own old entries in the hash chain.
+// SealedEnclaveKeypair stores the enclave's cryptographic keys for sealing.
+// It includes both the Ed25519 keypair for hash chain signatures and optionally
+// the BGLS03 signature keys for aggregate signature scheme.
 type SealedEnclaveKeypair struct {
+	// Ed25519 keypair for hash chain signatures
 	PublicKey         []byte `json:"public_key"`
 	PrivateKey        []byte `json:"private_key"`
 	AttestationReport []byte `json:"attestation_report"`
+
+	// BGLS03 signature keys (optional - only present when signature is enabled)
+	SignatureEnabled bool   `json:"signature_enabled"`
+	SigPkBytes       []byte `json:"sig_pk_bytes,omitempty"`  // Serialized bgls03.PublicKey
+	SigSkBytes       []byte `json:"sig_sk_bytes,omitempty"`  // Serialized bgls03.PrivateKey
+	SigPpBytes       []byte `json:"sig_pp_bytes,omitempty"`  // Serialized bgls03.PublicParams
 }
 
-// SealEnclaveKeypair persists the enclave keypair to disk using EGO sealing.
-// The keypair is sealed with the enclave's product key, allowing it to survive
-// enclave restarts as long as the signing key remains the same.
+// SealEnclaveKeypairWithSignature persists the enclave keypair and optional BGLS signature keys
+// to disk using EGO sealing. The keypair is sealed with the enclave's product key, allowing it
+// to survive enclave restarts as long as the signing key remains the same.
 // Filename format: <podId>_keypair.sealed
-func SealEnclaveKeypair(podID string, pubKey ed25519.PublicKey, privKey ed25519.PrivateKey, attestationReport []byte) error {
-	logDev := mutil.LogWithPrefix("dev - SealEnclaveKeypair")
+func SealEnclaveKeypairWithSignature(
+	podID string,
+	pubKey ed25519.PublicKey,
+	privKey ed25519.PrivateKey,
+	attestationReport []byte,
+	signatureEnabled bool,
+	sigPp *bgls03.PublicParams,
+	sigPk *bgls03.PublicKey,
+	sigSk *bgls03.PrivateKey,
+) error {
+	logDev := mutil.LogWithPrefix("dev - SealEnclaveKeypairWithSignature")
 
 	keypair := SealedEnclaveKeypair{
 		PublicKey:         pubKey,
 		PrivateKey:        privKey,
 		AttestationReport: attestationReport,
+		SignatureEnabled:  signatureEnabled,
+	}
+
+	// Serialize BGLS signature keys if signature is enabled
+	if signatureEnabled && sigPp != nil && sigPk != nil && sigSk != nil {
+		// Serialize public params
+		pps := new(bgls.PublicParamsSerialized)
+		pps.Serialize(sigPp)
+		ppBytes, err := json.Marshal(pps)
+		if err != nil {
+			return fmt.Errorf("failed to serialize signature public params: %w", err)
+		}
+		keypair.SigPpBytes = ppBytes
+
+		// Serialize public key
+		pks := new(bgls.PublicKeySerialized)
+		pks.Serialize(sigPk)
+		pkBytes, err := json.Marshal(pks)
+		if err != nil {
+			return fmt.Errorf("failed to serialize signature public key: %w", err)
+		}
+		keypair.SigPkBytes = pkBytes
+
+		// Serialize private key
+		sks := new(bgls.PrivateKeySerialized)
+		if err := sks.Serialize(sigSk); err != nil {
+			return fmt.Errorf("failed to serialize signature private key: %w", err)
+		}
+		skBytes, err := json.Marshal(sks)
+		if err != nil {
+			return fmt.Errorf("failed to marshal signature private key: %w", err)
+		}
+		keypair.SigSkBytes = skBytes
+
+		logDev("Serialized BGLS signature keys for sealing")
 	}
 
 	plaintext, err := json.Marshal(keypair)
@@ -190,14 +255,34 @@ func SealEnclaveKeypair(podID string, pubKey ed25519.PublicKey, privKey ed25519.
 		return fmt.Errorf("failed to write sealed keypair file: %w", err)
 	}
 
-	logDev("Sealed enclave keypair: podID=%s, file=%s", podID, filePath)
+	logDev("Sealed enclave keypair: podID=%s, file=%s, signatureEnabled=%v", podID, filePath, signatureEnabled)
 	return nil
 }
 
-// UnsealEnclaveKeypair loads the enclave keypair from sealed storage.
-// Returns (nil, nil, nil, nil) if no sealed keypair exists (fresh start).
-func UnsealEnclaveKeypair(podID string) (ed25519.PublicKey, ed25519.PrivateKey, []byte, error) {
-	logDev := mutil.LogWithPrefix("dev - UnsealEnclaveKeypair")
+// SealEnclaveKeypair is a backwards-compatible wrapper that seals without signature keys.
+// Deprecated: Use SealEnclaveKeypairWithSignature instead.
+func SealEnclaveKeypair(podID string, pubKey ed25519.PublicKey, privKey ed25519.PrivateKey, attestationReport []byte) error {
+	return SealEnclaveKeypairWithSignature(podID, pubKey, privKey, attestationReport, false, nil, nil, nil)
+}
+
+// UnsealedEnclaveKeys holds all keys that were unsealed from sealed storage.
+type UnsealedEnclaveKeys struct {
+	// Ed25519 keys for hash chain signatures
+	PublicKey         ed25519.PublicKey
+	PrivateKey        ed25519.PrivateKey
+	AttestationReport []byte
+
+	// BGLS03 signature keys (nil if signature was not enabled when sealed)
+	SignatureEnabled bool
+	SigPp            *bgls03.PublicParams
+	SigPk            *bgls03.PublicKey
+	SigSk            *bgls03.PrivateKey
+}
+
+// UnsealEnclaveKeypairWithSignature loads all enclave keys including signature keys from sealed storage.
+// Returns nil if no sealed keypair exists (fresh start).
+func UnsealEnclaveKeypairWithSignature(podID string) (*UnsealedEnclaveKeys, error) {
+	logDev := mutil.LogWithPrefix("dev - UnsealEnclaveKeypairWithSignature")
 
 	// Filename format: <podId>_keypair.sealed
 	fileName := fmt.Sprintf("%s_keypair.sealed", podID)
@@ -207,9 +292,9 @@ func UnsealEnclaveKeypair(podID string) (ed25519.PublicKey, ed25519.PrivateKey, 
 	if err != nil {
 		if os.IsNotExist(err) {
 			logDev("No sealed keypair found for podID=%s (fresh start)", podID)
-			return nil, nil, nil, nil
+			return nil, nil
 		}
-		return nil, nil, nil, fmt.Errorf("failed to read sealed keypair file: %w", err)
+		return nil, fmt.Errorf("failed to read sealed keypair file: %w", err)
 	}
 
 	// Use podID as additional data (must match what was used during sealing)
@@ -217,23 +302,84 @@ func UnsealEnclaveKeypair(podID string) (ed25519.PublicKey, ed25519.PrivateKey, 
 
 	plaintext, err := ecrypto.Unseal(sealed, additionalData)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to unseal keypair: %w", err)
+		return nil, fmt.Errorf("failed to unseal keypair: %w", err)
 	}
 
 	var keypair SealedEnclaveKeypair
 	if err := json.Unmarshal(plaintext, &keypair); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to unmarshal keypair: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal keypair: %w", err)
 	}
 
 	if len(keypair.PublicKey) != ed25519.PublicKeySize {
-		return nil, nil, nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(keypair.PublicKey))
+		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(keypair.PublicKey))
 	}
 	if len(keypair.PrivateKey) != ed25519.PrivateKeySize {
-		return nil, nil, nil, fmt.Errorf("invalid private key size: expected %d, got %d", ed25519.PrivateKeySize, len(keypair.PrivateKey))
+		return nil, fmt.Errorf("invalid private key size: expected %d, got %d", ed25519.PrivateKeySize, len(keypair.PrivateKey))
 	}
 
-	logDev("Unsealed enclave keypair: podID=%s", podID)
-	return ed25519.PublicKey(keypair.PublicKey), ed25519.PrivateKey(keypair.PrivateKey), keypair.AttestationReport, nil
+	result := &UnsealedEnclaveKeys{
+		PublicKey:         ed25519.PublicKey(keypair.PublicKey),
+		PrivateKey:        ed25519.PrivateKey(keypair.PrivateKey),
+		AttestationReport: keypair.AttestationReport,
+		SignatureEnabled:  keypair.SignatureEnabled,
+	}
+
+	// Deserialize BGLS signature keys if they were sealed
+	if keypair.SignatureEnabled && len(keypair.SigPpBytes) > 0 && len(keypair.SigPkBytes) > 0 && len(keypair.SigSkBytes) > 0 {
+		// Deserialize public params
+		var pps bgls.PublicParamsSerialized
+		if err := json.Unmarshal(keypair.SigPpBytes, &pps); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal signature public params: %w", err)
+		}
+		sigPp, err := pps.DeSerialize()
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize signature public params: %w", err)
+		}
+		result.SigPp = sigPp
+
+		// Deserialize public key
+		var pks bgls.PublicKeySerialized
+		if err := json.Unmarshal(keypair.SigPkBytes, &pks); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal signature public key: %w", err)
+		}
+		sigPk, err := pks.DeSerialize()
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize signature public key: %w", err)
+		}
+		result.SigPk = sigPk
+
+		// Deserialize private key
+		var sks bgls.PrivateKeySerialized
+		if err := json.Unmarshal(keypair.SigSkBytes, &sks); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal signature private key: %w", err)
+		}
+		sigSk, err := sks.DeSerialize()
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize signature private key: %w", err)
+		}
+		result.SigSk = sigSk
+
+		logDev("Deserialized BGLS signature keys from sealed storage")
+	} else if keypair.SignatureEnabled {
+		// Signature was enabled but keys are missing - this is an inconsistent state
+		logDev("WARNING: SignatureEnabled=true but signature keys are missing in sealed data")
+	}
+
+	logDev("Unsealed enclave keypair: podID=%s, signatureEnabled=%v", podID, keypair.SignatureEnabled)
+	return result, nil
+}
+
+// UnsealEnclaveKeypair is a backwards-compatible function that only returns Ed25519 keys.
+// Deprecated: Use UnsealEnclaveKeypairWithSignature instead.
+func UnsealEnclaveKeypair(podID string) (ed25519.PublicKey, ed25519.PrivateKey, []byte, error) {
+	result, err := UnsealEnclaveKeypairWithSignature(podID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if result == nil {
+		return nil, nil, nil, nil
+	}
+	return result.PublicKey, result.PrivateKey, result.AttestationReport, nil
 }
 
 // sealVerifiedState persists the verified state to disk using EGO sealing.
@@ -502,10 +648,13 @@ func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChai
 //
 // Trust chain:
 // 1. Verify attestation report (Intel's root of trust)
-// 2. Verify SHA256(writerID || publicKey) matches report.Data
-// 3. Trust the public key
+// 2. Verify report data binding:
+//    - If signature enabled: SHA256(writerID || ed25519PubKey || SHA256(bglsPkmHash))
+//    - If signature disabled: SHA256(writerID || ed25519PubKey)
+// 3. Trust the public key (and BGLS keys if present)
 // 4. Verify data signature for integrity
 // 5. Use trusted public key for hash chain signature verification
+// 6. If BGLS keys are present and valid, cache them for signature verification
 func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) (ed25519.PublicKey, error) {
 	logDev := mutil.LogWithPrefix("dev - getWriterPublicKey")
 
@@ -566,17 +715,56 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 		return nil, fmt.Errorf("enclave verification failed for writerID %s: %w", writerID, err)
 	}
 
-	// 3. Verify report data binding: SHA256(writerID || publicKey) must match report.Data
+	// 3. Verify report data binding
+	// Format depends on whether signature keys are present:
+	// - With signature: SHA256(writerID || ed25519PubKey || SHA256(bglsPkmHash))
+	// - Without signature: SHA256(writerID || ed25519PubKey)
 	h := sha256.New()
 	h.Write([]byte(writerID))
 	h.Write(attestedKey.PublicKey)
+
+	// If BGLS signature keys are present, include them in the expected report data
+	if attestedKey.SignatureEnabled && len(attestedKey.SigPpBytes) > 0 && len(attestedKey.SigPkBytes) > 0 {
+		// Deserialize and verify BGLS keys to compute PKM hash
+		var pps bgls.PublicParamsSerialized
+		if err := json.Unmarshal(attestedKey.SigPpBytes, &pps); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal BGLS public params for writerID %s: %w", writerID, err)
+		}
+		sigPp, err := pps.DeSerialize()
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize BGLS public params for writerID %s: %w", writerID, err)
+		}
+
+		var pks bgls.PublicKeySerialized
+		if err := json.Unmarshal(attestedKey.SigPkBytes, &pks); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal BGLS public key for writerID %s: %w", writerID, err)
+		}
+		sigPk, err := pks.DeSerialize()
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize BGLS public key for writerID %s: %w", writerID, err)
+		}
+
+		// Compute PKM hash the same way as in computeAttestationReportData
+		pkmHash, err := bgls.HashPkm(sigPp, sigPk, writerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute BGLS PKM hash for writerID %s: %w", writerID, err)
+		}
+		bglsHash := sha256.Sum256(pkmHash)
+		h.Write(bglsHash[:])
+
+		logDev("Including BGLS signature keys in attestation verification for writerID %s", writerID)
+
+		// Cache the verified BGLS keys for signature verification
+		kr.cacheBgls03Keys(writerID, sigPp, sigPk)
+	}
+
 	expectedReportData := h.Sum(nil)
 
 	if !bytes.Equal(report.Data[:len(expectedReportData)], expectedReportData) {
-		return nil, fmt.Errorf("attestation report data mismatch: public key not bound to writerID %s", writerID)
+		return nil, fmt.Errorf("attestation report data mismatch: keys not bound to writerID %s", writerID)
 	}
 
-	logDev("Attestation verified for writerID %s", writerID)
+	logDev("Attestation verified for writerID %s (signatureEnabled=%v)", writerID, attestedKey.SignatureEnabled)
 
 	// 4. Verify data signature for additional integrity
 	pubKey := ed25519.PublicKey(attestedKey.PublicKey)
@@ -593,6 +781,18 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 	logDev("Cached verified public key for writerID %s", writerID)
 
 	return pubKey, nil
+}
+
+// cacheBgls03Keys stores verified BGLS03 keys for a given writerID (podID) in the KeyRegistry.
+// These keys are used for aggregate signature verification.
+// Uses the same thread-safe write methods as HandleBgls03PublicKeys for consistency.
+func (kr *KeyRegistry) cacheBgls03Keys(writerID string, pp *bgls03.PublicParams, pk *bgls03.PublicKey) {
+	logDev := mutil.LogWithPrefix("dev - cacheBgls03Keys")
+
+	kr.SafeWriteBgls03PublicParams(writerID, pp)
+	kr.SafeWriteBgls03PublicKey(writerID, pk)
+
+	logDev("Cached verified BGLS03 keys for writerID %s", writerID)
 }
 
 // ============================================================
@@ -847,9 +1047,13 @@ func (kr *KeyRegistry) executeHashChainTransaction(
 }
 
 // StoreEnclavePublicKeyWithHashChain stores an enclave public key with hash chain integrity.
-// The public key and attestation report are packed together as an AttestedPublicKey.
+// The public key, attestation report, and optional BGLS signature keys are packed together as an AttestedPublicKey.
 // This function fully trusts the watcher's verified state - if the watcher hasn't started
 // or has no state yet, it returns an error to trigger a retry.
+//
+// Parameters:
+//   - signatureEnabled: whether BGLS signature keys should be included
+//   - sigPp, sigPk: BGLS public params and public key (may be nil if signatureEnabled is false)
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	ctx context.Context,
 	podID string,
@@ -857,6 +1061,9 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 	enclavePrivKey ed25519.PrivateKey,
 	attestationReport []byte,
 	genesisHash []byte,
+	signatureEnabled bool,
+	sigPp *bgls03.PublicParams,
+	sigPk *bgls03.PublicKey,
 ) error {
 	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithHashChain")
 
@@ -884,13 +1091,38 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 		}
 	}
 
-	logDev("Chaining from idx=%d, isFirstWrite=%v", watcherIdx, isFirstWrite)
+	logDev("Chaining from idx=%d, isFirstWrite=%v, signatureEnabled=%v", watcherIdx, isFirstWrite, signatureEnabled)
 
-	// Pack public key and attestation report together
+	// Pack public key, attestation report, and optional BGLS keys together
 	attestedKey := &AttestedPublicKey{
-		PublicKey:   enclavePubKey,
-		Attestation: attestationReport,
+		PublicKey:        enclavePubKey,
+		Attestation:      attestationReport,
+		SignatureEnabled: signatureEnabled,
 	}
+
+	// Serialize BGLS signature keys if enabled
+	if signatureEnabled && sigPp != nil && sigPk != nil {
+		// Serialize public params
+		pps := new(bgls.PublicParamsSerialized)
+		pps.Serialize(sigPp)
+		ppBytes, err := json.Marshal(pps)
+		if err != nil {
+			return fmt.Errorf("failed to serialize BGLS public params: %w", err)
+		}
+		attestedKey.SigPpBytes = ppBytes
+
+		// Serialize public key
+		pks := new(bgls.PublicKeySerialized)
+		pks.Serialize(sigPk)
+		pkBytes, err := json.Marshal(pks)
+		if err != nil {
+			return fmt.Errorf("failed to serialize BGLS public key: %w", err)
+		}
+		attestedKey.SigPkBytes = pkBytes
+
+		logDev("Including BGLS signature keys in attested public key payload")
+	}
+
 	payload, err := json.Marshal(attestedKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal attested public key: %w", err)
@@ -934,7 +1166,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 
 	newHead := &HashChainHead{
 		Idx:      idx,
-		Digest:   newDigest, // how is newDigest computed?
+		Digest:   newDigest,
 		WriterID: writerID,
 		HeadSig:  headSig,
 	}
@@ -949,14 +1181,15 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChain(
 		return fmt.Errorf("transaction conflict: head or data key changed")
 	}
 
-	logDev("Successfully stored enclave public key with hash chain: podID=%s, idx=%d", podID, idx)
+	logDev("Successfully stored enclave public key with hash chain: podID=%s, idx=%d, signatureEnabled=%v", podID, idx, signatureEnabled)
 	return nil
 }
 
 // UNUSED
 // StoreEnclavePublicKeyWithRetry stores an enclave public key with hash chain, retrying on conflicts.
 // Implements exponential backoff with jitter (100ms initial, 5s max).
-// The public key and attestation report are packed together as an AttestedPublicKey.
+// The public key, attestation report, and optional BGLS keys are packed together as an AttestedPublicKey.
+// Deprecated: Use StoreEnclavePublicKeyWithRetryVerified instead.
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 	podID string,
 	enclavePubKey ed25519.PublicKey,
@@ -964,15 +1197,18 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 	attestationReport []byte,
 	genesisHash []byte,
 	maxRetries int,
+	signatureEnabled bool,
+	sigPp *bgls03.PublicParams,
+	sigPk *bgls03.PublicKey,
 ) error {
 	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithRetry")
 
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := kr.StoreEnclavePublicKeyWithHashChain(ctx, podID, enclavePubKey, enclavePrivKey, attestationReport, genesisHash)
+		err := kr.StoreEnclavePublicKeyWithHashChain(ctx, podID, enclavePubKey, enclavePrivKey, attestationReport, genesisHash, signatureEnabled, sigPp, sigPk)
 		cancel()
 
 		if err == nil {
@@ -1015,7 +1251,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 // 1. Uses VerifyChainUpToHead to verify all entries from idx 1 up to current head
 // 2. Updates watcher state with verified entries and data records
 // 3. Queues data records for pending processing (since our public key isn't published yet)
-// 4. Chains and writes our enclave public key
+// 4. Chains and writes our enclave public key (with optional BGLS signature keys)
 // 5. Updates watcher's verified state with our new entry
 //
 // After this function succeeds, the caller should:
@@ -1028,6 +1264,9 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChainVerified(
 	enclavePrivKey ed25519.PrivateKey,
 	attestationReport []byte,
 	genesisHash []byte,
+	signatureEnabled bool,
+	sigPp *bgls03.PublicParams,
+	sigPk *bgls03.PublicKey,
 ) error {
 	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithHashChainVerified")
 
@@ -1097,11 +1336,36 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChainVerified(
 		logDev("Verified chain up to idx=%d, will write at idx=%d", result.VerifiedIdx, idx)
 	}
 
-	// Pack public key and attestation report together
+	// Pack public key, attestation report, and optional BGLS keys together
 	attestedKey := &AttestedPublicKey{
-		PublicKey:   enclavePubKey,
-		Attestation: attestationReport,
+		PublicKey:        enclavePubKey,
+		Attestation:      attestationReport,
+		SignatureEnabled: signatureEnabled,
 	}
+
+	// Serialize BGLS signature keys if enabled
+	if signatureEnabled && sigPp != nil && sigPk != nil {
+		// Serialize public params
+		pps := new(bgls.PublicParamsSerialized)
+		pps.Serialize(sigPp)
+		ppBytes, err := json.Marshal(pps)
+		if err != nil {
+			return fmt.Errorf("failed to serialize BGLS public params: %w", err)
+		}
+		attestedKey.SigPpBytes = ppBytes
+
+		// Serialize public key
+		pks := new(bgls.PublicKeySerialized)
+		pks.Serialize(sigPk)
+		pkBytes, err := json.Marshal(pks)
+		if err != nil {
+			return fmt.Errorf("failed to serialize BGLS public key: %w", err)
+		}
+		attestedKey.SigPkBytes = pkBytes
+
+		logDev("Including BGLS signature keys in attested public key payload")
+	}
+
 	payload, err := json.Marshal(attestedKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal attested public key: %w", err)
@@ -1165,7 +1429,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChainVerified(
 	// so other writes don't re-verify the entire chain
 	UpdateVerifiedState(idx, newDigest, genesisHash, newHead, headModRev+1)
 
-	logDev("Successfully stored enclave public key with verified chain: podID=%s, idx=%d", podID, idx)
+	logDev("Successfully stored enclave public key with verified chain: podID=%s, idx=%d, signatureEnabled=%v", podID, idx, signatureEnabled)
 	return nil
 }
 
@@ -1173,6 +1437,7 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChainVerified(
 // verifying the chain before each write attempt and retrying on conflicts.
 // This is the preferred method for initial enclave public key publishing because it
 // doesn't require the watcher to be running first.
+// Includes optional BGLS signature keys when signatureEnabled is true.
 func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
 	podID string,
 	enclavePubKey ed25519.PublicKey,
@@ -1180,15 +1445,18 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
 	attestationReport []byte,
 	genesisHash []byte,
 	maxRetries int,
+	signatureEnabled bool,
+	sigPp *bgls03.PublicParams,
+	sigPk *bgls03.PublicKey,
 ) error {
 	logDev := mutil.LogWithPrefix("dev - StoreEnclavePublicKeyWithRetryVerified")
 
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Longer timeout for verification
-		err := kr.StoreEnclavePublicKeyWithHashChainVerified(ctx, podID, enclavePubKey, enclavePrivKey, attestationReport, genesisHash)
+		err := kr.StoreEnclavePublicKeyWithHashChainVerified(ctx, podID, enclavePubKey, enclavePrivKey, attestationReport, genesisHash, signatureEnabled, sigPp, sigPk)
 		cancel()
 
 		if err == nil {

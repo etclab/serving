@@ -33,6 +33,38 @@ func (pks PublicKeySerialized) DeSerialize() (*bgls03.PublicKey, error) {
 	}, nil
 }
 
+// PrivateKeySerialized provides serialization for bgls03.PrivateKey.
+// The private key contains a bls.Scalar which can be marshaled to bytes.
+type PrivateKeySerialized struct {
+	X []byte `json:"x"`
+}
+
+func (sks *PrivateKeySerialized) Serialize(sk *bgls03.PrivateKey) error {
+	if sk == nil || sk.X == nil {
+		return fmt.Errorf("cannot serialize nil private key")
+	}
+	xBytes, err := sk.X.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("failed to marshal scalar: %w", err)
+	}
+	sks.X = xBytes
+	return nil
+}
+
+func (sks PrivateKeySerialized) DeSerialize() (*bgls03.PrivateKey, error) {
+	if len(sks.X) == 0 {
+		return nil, fmt.Errorf("cannot deserialize empty private key bytes")
+	}
+	x := new(bls.Scalar)
+	err := x.UnmarshalBinary(sks.X)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal scalar: %w", err)
+	}
+	return &bgls03.PrivateKey{
+		X: x,
+	}, nil
+}
+
 // type PublicParams struct {
 // 	G1 *bls.G1
 // 	G2 *bls.G2

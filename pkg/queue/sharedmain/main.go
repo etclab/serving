@@ -72,8 +72,10 @@ import (
 	"knative.dev/serving/pkg/queue/readiness"
 
 	"github.com/edgelesssys/ego/enclave"
+	bgls03 "github.com/etclab/ncircl/aggsig/bgls03"
 	"github.com/etclab/pre"
 	injection "knative.dev/pkg/injection"
+	"knative.dev/serving/pkg/bgls"
 )
 
 const (
@@ -179,8 +181,13 @@ type Env struct {
 	EnclavePublicKey  ed25519.PublicKey  // Generated public key for verification
 	EnclavePrivateKey ed25519.PrivateKey // Generated private key for signing
 
-	// Enclave attestation report binding the public key and podId to the enclave
+	// Enclave attestation report binding all enclave keys (Ed25519 + BGLS) and podId to the enclave
 	EnclaveAttestationReport []byte
+
+	// BGLS03 aggregate signature keys (generated when AttachSignature is enabled)
+	SigPp *bgls03.PublicParams // BGLS public params for signature scheme
+	SigPk *bgls03.PublicKey    // BGLS public key for verification
+	SigSk *bgls03.PrivateKey   // BGLS private key for signing
 }
 
 // Defaults provides Options (QP Extensions) with the default bahaviour of QP
@@ -421,51 +428,195 @@ func initEtcdWithRetry(d *Defaults) {
 	d.KeyRegistry.InitEtcdWithRetry()
 }
 
-// generateEnclaveKeypair generates or loads an Ed25519 keypair for signing hashes within the enclave.
-// It first tries to load a sealed keypair from disk (to survive pod restarts).
-// If no sealed keypair exists, it generates a new one and seals it for future restarts.
-// The attestation report binds the public key and podId (writerId) to the enclave.
-// The report data is: SHA256(podId || publicKey)
+// generateEnclaveKeypair generates or loads all enclave cryptographic keys.
+// This includes:
+// - Ed25519 keypair for hash chain signatures
+// - BGLS03 signature keys (when AttachSignature is enabled)
+//
+// It first tries to load sealed keys from disk (to survive pod restarts).
+// If no sealed keys exist, it generates new ones and seals them for future restarts.
+//
+// The attestation report binds ALL keys (Ed25519 + BGLS) and podId to the enclave.
+// Report data format: SHA256(podId || ed25519PubKey || bglsPublicKeyMaterial)
 func generateEnclaveKeypair(env *Env) {
 	logDev := mutil.LogWithPrefix("dev - generateEnclaveKeypair")
 
 	podId := env.ServingPod
+	signatureEnabled := env.AttachSignature
+
 	if podId == "" {
 		logDev("ServingPod not set, generating keypair without persistence")
-		generateNewKeypair(env, podId)
+		generateNewKeypair(env, podId, signatureEnabled)
 		return
 	}
 
-	// Try to load existing sealed keypair first
-	pubKey, privKey, attestationReport, err := kregistry.UnsealEnclaveKeypair(podId)
+	// Try to load existing sealed keys (includes both Ed25519 and BGLS if present)
+	unsealedKeys, err := kregistry.UnsealEnclaveKeypairWithSignature(podId)
 	if err != nil {
 		logDev("Error unsealing keypair (will generate new): %v", err)
 	}
 
-	if pubKey != nil && privKey != nil {
-		// Successfully loaded existing keypair
-		env.EnclavePublicKey = pubKey
-		env.EnclavePrivateKey = privKey
-		env.EnclaveAttestationReport = attestationReport
-		logDev("Loaded sealed enclave keypair for podId=%s (public key: %d bytes)", podId, len(pubKey))
+	if unsealedKeys != nil && unsealedKeys.PublicKey != nil && unsealedKeys.PrivateKey != nil {
+		// Successfully loaded existing Ed25519 keypair
+		env.EnclavePublicKey = unsealedKeys.PublicKey
+		env.EnclavePrivateKey = unsealedKeys.PrivateKey
+		env.EnclaveAttestationReport = unsealedKeys.AttestationReport
+		logDev("Loaded sealed enclave Ed25519 keypair for podId=%s (public key: %d bytes)", podId, len(unsealedKeys.PublicKey))
+
+		// Handle BGLS signature keys based on current and sealed state
+		needsReseal := false
+
+		if signatureEnabled {
+			if unsealedKeys.SignatureEnabled && unsealedKeys.SigPp != nil && unsealedKeys.SigPk != nil && unsealedKeys.SigSk != nil {
+				// Sealed data has signature keys - use them
+				env.SigPp = unsealedKeys.SigPp
+				env.SigPk = unsealedKeys.SigPk
+				env.SigSk = unsealedKeys.SigSk
+				logDev("Loaded sealed BGLS signature keys for podId=%s", podId)
+			} else {
+				// Signature is enabled now but wasn't before (or keys are corrupted)
+				// Generate new BGLS keys and create new attestation report
+				logDev("Signature enabled but sealed data missing BGLS keys - generating new ones")
+				if generateBglsSignatureKeys(env) {
+					// Need to regenerate attestation report with both key types
+					regenerateAttestationReport(env, podId)
+					needsReseal = true
+				}
+			}
+		} else {
+			// Signature is disabled now - don't load BGLS keys even if present
+			if unsealedKeys.SignatureEnabled {
+				logDev("Signature was previously enabled but is now disabled - BGLS keys not loaded")
+				// Note: We could reseal without signature keys, but we keep the existing sealed data
+				// to allow re-enabling signature later without regenerating keys
+			}
+		}
+
+		// Reseal if we generated new BGLS keys
+		if needsReseal && env.EnclavePublicKey != nil && env.EnclavePrivateKey != nil {
+			if err := kregistry.SealEnclaveKeypairWithSignature(
+				podId,
+				env.EnclavePublicKey,
+				env.EnclavePrivateKey,
+				env.EnclaveAttestationReport,
+				signatureEnabled,
+				env.SigPp,
+				env.SigPk,
+				env.SigSk,
+			); err != nil {
+				logDev("Warning: failed to reseal keypair with signature keys: %v", err)
+			} else {
+				logDev("Resealed keypair with new BGLS signature keys")
+			}
+		}
 		return
 	}
 
-	// No existing keypair, generate new one
-	generateNewKeypair(env, podId)
+	// No existing keypair, generate new ones
+	generateNewKeypair(env, podId, signatureEnabled)
 
 	// Seal the new keypair for future restarts
 	if env.EnclavePublicKey != nil && env.EnclavePrivateKey != nil {
-		if err := kregistry.SealEnclaveKeypair(podId, env.EnclavePublicKey, env.EnclavePrivateKey, env.EnclaveAttestationReport); err != nil {
+		if err := kregistry.SealEnclaveKeypairWithSignature(
+			podId,
+			env.EnclavePublicKey,
+			env.EnclavePrivateKey,
+			env.EnclaveAttestationReport,
+			signatureEnabled,
+			env.SigPp,
+			env.SigPk,
+			env.SigSk,
+		); err != nil {
 			logDev("Warning: failed to seal keypair (pod restart will generate new keys): %v", err)
 		}
 	}
 }
 
-// generateNewKeypair creates a new Ed25519 keypair and attestation report.
-func generateNewKeypair(env *Env, podId string) {
+// generateBglsSignatureKeys generates BGLS03 signature keys if AttachSignature is enabled.
+// Returns true if keys were successfully generated.
+func generateBglsSignatureKeys(env *Env) bool {
+	logDev := mutil.LogWithPrefix("dev - generateBglsSignatureKeys")
+
+	if !env.AttachSignature {
+		logDev("AttachSignature is disabled, skipping BGLS key generation")
+		return false
+	}
+
+	// Parse BGLS public params from environment variable
+	pp, err := mutil.ParseSignaturePublicParams()
+	if err != nil {
+		logDev("Failed to parse BGLS public params from env: %v", err)
+		logDev("BGLS signature keys will not be generated")
+		return false
+	}
+
+	// Generate BGLS keypair
+	pk, sk := bgls03.KeyGen(pp)
+	if pk == nil || sk == nil {
+		logDev("BGLS KeyGen returned nil keys")
+		return false
+	}
+
+	env.SigPp = pp
+	env.SigPk = pk
+	env.SigSk = sk
+	logDev("Successfully generated BGLS03 signature keys")
+	return true
+}
+
+// regenerateAttestationReport creates a new attestation report that binds
+// both Ed25519 and BGLS keys to the enclave.
+func regenerateAttestationReport(env *Env, podId string) {
+	logDev := mutil.LogWithPrefix("dev - regenerateAttestationReport")
+
+	if podId == "" {
+		logDev("ServingPod not set, skipping attestation report regeneration")
+		return
+	}
+
+	reportData := computeAttestationReportData(env, podId)
+
+	report, err := enclave.GetRemoteReport(reportData)
+	if err != nil {
+		logDev("Failed to get attestation report from ego: %v", err)
+		return
+	}
+
+	env.EnclaveAttestationReport = report
+	logDev("Successfully regenerated attestation report (%d bytes) binding all keys to enclave", len(report))
+}
+
+// computeAttestationReportData computes the hash that binds all enclave keys.
+// Format: SHA256(podId || ed25519PubKey || bglsPkmHash)
+// where bglsPkmHash = SHA256(JSON(pp, pk, podId)) if signature is enabled
+func computeAttestationReportData(env *Env, podId string) []byte {
+	logDev := mutil.LogWithPrefix("dev - computeAttestationReportData")
+
+	h := sha256.New()
+	h.Write([]byte(podId))
+	h.Write(env.EnclavePublicKey)
+
+	// Include BGLS public key material if signature is enabled
+	if env.AttachSignature && env.SigPp != nil && env.SigPk != nil {
+		pkmHash, err := bgls.HashPkm(env.SigPp, env.SigPk, podId)
+		if err != nil {
+			logDev("Failed to compute BGLS PKM hash: %v", err)
+		} else {
+			// Hash the PKM hash again for uniform size
+			bglsHash := sha256.Sum256(pkmHash)
+			h.Write(bglsHash[:])
+			logDev("Included BGLS public key material in attestation report data")
+		}
+	}
+
+	return h.Sum(nil)
+}
+
+// generateNewKeypair creates all new enclave keys and a unified attestation report.
+func generateNewKeypair(env *Env, podId string, signatureEnabled bool) {
 	logDev := mutil.LogWithPrefix("dev - generateNewKeypair")
 
+	// Generate Ed25519 keypair
 	pubKey, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		logDev("Error generating Ed25519 keypair: %v", err)
@@ -476,31 +627,31 @@ func generateNewKeypair(env *Env, podId string) {
 	env.EnclavePrivateKey = privKey
 	logDev("Successfully generated enclave Ed25519 keypair (public key: %d bytes)", len(pubKey))
 
+	// Generate BGLS signature keys if enabled
+	if signatureEnabled {
+		generateBglsSignatureKeys(env)
+	}
+
 	if podId == "" {
 		logDev("ServingPod not set, skipping attestation report generation")
 		return
 	}
 
-	// Create hash of podId + publicKey for attestation report data
-	// Hash: SHA256(podId || publicKey)
-	h := sha256.New()
-	h.Write([]byte(podId))
-	h.Write(pubKey)
-	reportData := h.Sum(nil)
+	// Compute attestation report data that binds ALL keys
+	reportData := computeAttestationReportData(env, podId)
 
-	logDev("Generating attestation report with reportData=SHA256(%s || pubKey)", podId)
+	logDev("Generating unified attestation report binding podId=%s, Ed25519 key, and BGLS keys (if enabled)", podId)
 
-	// Generate attestation report with the hash as report data
-	// This binds the public key and podId to the enclave's identity
+	// Generate attestation report with the combined hash as report data
 	report, err := enclave.GetRemoteReport(reportData)
 	if err != nil {
 		logDev("Failed to get attestation report from ego: %v", err)
-		// Continue without attestation - the keypair is still usable
+		// Continue without attestation - the keypairs are still usable
 		return
 	}
 
 	env.EnclaveAttestationReport = report
-	logDev("Successfully generated attestation report (%d bytes) binding podId=%s and public key to enclave", len(report), podId)
+	logDev("Successfully generated unified attestation report (%d bytes)", len(report))
 }
 
 // loadEnclaveEmbeddedFiles reads the files embedded in the enclave (defined in enclave.json)
@@ -652,6 +803,14 @@ func startHashChainWatcher(d *Defaults, logger *zap.SugaredLogger) {
 	}
 }
 
+// publishEnclavePublicKey publishes the enclave's Ed25519 public key and optionally
+// BGLS signature keys to the hash chain. This is the single entry point for publishing
+// all enclave cryptographic material, ensuring they are bound together in the attestation.
+//
+// The attestation report binds:
+//   - Ed25519 public key (for hash chain signatures)
+//   - BGLS public params and public key (for aggregate signatures, if AttachSignature is enabled)
+//   - Pod ID (writer identity)
 func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger, genesisHash []byte) {
 	logDev := mutil.LogWithPrefix("dev - publishEnclavePublicKey")
 
@@ -661,10 +820,28 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger, genesisHash
 		return
 	}
 
+	// Determine if BGLS signature keys should be published
+	signatureEnabled := d.Env.AttachSignature
+	var sigPp *bgls03.PublicParams
+	var sigPk *bgls03.PublicKey
+
+	if signatureEnabled {
+		sigPp = d.Env.SigPp
+		sigPk = d.Env.SigPk
+
+		if sigPp == nil || sigPk == nil {
+			logDev("AttachSignature is enabled but BGLS keys are nil - publishing without signature keys")
+			signatureEnabled = false
+		} else {
+			logDev("Including BGLS signature keys in published enclave public key")
+		}
+	}
+
 	// Use the verified storage function which:
 	// 1. Verifies the entire chain before writing (no watcher needed)
 	// 2. Updates the watcher's verified state after successful write
 	// 3. Handles retries with exponential backoff
+	// 4. Publishes both Ed25519 and BGLS keys in a single atomic operation
 	err := d.KeyRegistry.StoreEnclavePublicKeyWithRetryVerified(
 		d.KeyRegistry.PodId,
 		d.KeyRegistry.EnclavePublicKey,
@@ -672,6 +849,9 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger, genesisHash
 		d.Env.EnclaveAttestationReport,
 		genesisHash,
 		100, // High retry count for startup conflicts
+		signatureEnabled,
+		sigPp,
+		sigPk,
 	)
 	if err != nil {
 		// This is fatal - without the enclave public key, other pods cannot verify
@@ -682,7 +862,8 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger, genesisHash
 	} else {
 		logger.Infow("Successfully stored enclave public key with hash chain",
 			zap.String("podID", d.KeyRegistry.PodId),
-			zap.Int("attestationBytes", len(d.Env.EnclaveAttestationReport)))
+			zap.Int("attestationBytes", len(d.Env.EnclaveAttestationReport)),
+			zap.Bool("signatureEnabled", signatureEnabled))
 
 		// Mark that our enclave public key is now published.
 		// This allows deferred member key processing to proceed.
@@ -694,6 +875,9 @@ func publishEnclavePublicKey(d *Defaults, logger *zap.SugaredLogger, genesisHash
 		// other pods being able to verify our signatures.
 		// Run in goroutine to avoid blocking the main flow.
 		go d.KeyRegistry.ProcessPendingMemberKeys()
+
+		// Note: BGLS signature verification keys are now discovered via getWriterPublicKey()
+		// when verifying hash chain entries. No separate watcher needed.
 	}
 }
 
@@ -789,8 +973,10 @@ func Main(opts ...Option) error {
 	d.KeyRegistry.IsEtcdReady = make(chan struct{})
 	d.KeyRegistry.LoadMyEnvVars(d.Env.ServingService)
 
-	// env.ServingPod is the pod id
-	go d.KeyRegistry.SetupSignature(env.AttachSignature, env.ServingPod)
+	// Note: BGLS signature keys are generated in generateEnclaveKeypair() and published
+	// together with the Ed25519 public key in publishEnclavePublicKey(). This ensures
+	// all enclave keys are bound together in a single attestation report.
+	// go d.KeyRegistry.SetupSignature(env.AttachSignature, env.ServingPod)
 
 	// connect to etcd
 	go initEtcdWithRetry(&d)
@@ -983,14 +1169,27 @@ func Main(opts ...Option) error {
 }
 
 // initialize proxy re-encryption values
+// initKeyRegistry initializes the KeyRegistry with enclave keys and identifiers.
+// This includes both Ed25519 keys for hash chain signatures and BGLS03 keys
+// for aggregate signatures (when AttachSignature is enabled).
 func initKeyRegistry() Option {
 	return func(d *Defaults) {
 		d.KeyRegistry.InstanceId = d.Env.ServingPodIP
 		d.KeyRegistry.FunctionId = d.KeyRegistry.GetFunctionId(d.Env.ServingRevision)
 		d.KeyRegistry.ServiceName = d.KeyRegistry.GetServiceName(d.Env.ServingService)
 		d.KeyRegistry.PodId = d.Env.ServingPod
+
+		// Ed25519 keys for hash chain signatures
 		d.KeyRegistry.EnclavePublicKey = d.Env.EnclavePublicKey
 		d.KeyRegistry.EnclavePrivateKey = d.Env.EnclavePrivateKey
+
+		// BGLS03 signature keys (set by generateEnclaveKeypair when AttachSignature is enabled)
+		if d.Env.AttachSignature && d.Env.SigPp != nil && d.Env.SigPk != nil && d.Env.SigSk != nil {
+			d.KeyRegistry.SigPp = d.Env.SigPp
+			d.KeyRegistry.SigPk = d.Env.SigPk
+			d.KeyRegistry.SigSk = d.Env.SigSk
+			d.KeyRegistry.AttestationReport = d.Env.EnclaveAttestationReport
+		}
 	}
 }
 
