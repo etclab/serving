@@ -1225,16 +1225,12 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("replay detected: flow %s already processed by this service", nonce)
 		}
 
-		// 2. Record this service's processing in the hash chain
-		chainIdx, err := d.KeyRegistry.RecordFlowProcessing(nonce)
-		if err != nil {
-			logDev("Failed to record flow processing: %v", err)
-			return nil, fmt.Errorf("failed to record flow processing: %w", err)
-		}
-		logDev("Recorded flow processing: flowID=%s, chainIdx=%d", nonce, chainIdx)
+		// 2. Start async flow recording - runs in background while request is processed
+		// The result will be collected in EncryptResponseBody before sending response
+		newCtx, _ := d.KeyRegistry.StartFlowRecordingAsync(req.Context(), nonce)
+		req = req.WithContext(newCtx)
 
-		// 3. Pass index to EncryptResponseBody via internal headers
-		req.Header.Set(kregistry.FlowChainIndexHeader, fmt.Sprintf("%d", chainIdx))
+		// 3. Mark that flow tracking is enabled so EncryptResponseBody knows to wait for result
 		req.Header.Set(kregistry.FlowTrackingEnabledHeader, "true")
 	} else {
 		logDev("Flow tracking disabled or nonce missing, skipping flow processing.")

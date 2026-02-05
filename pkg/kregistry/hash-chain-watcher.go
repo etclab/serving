@@ -899,6 +899,9 @@ func (w *HashChainWatcher) storeVerifiedEntryLocked(entry *HashChainEntry, dataR
 	}
 }
 
+// TODO: ensure the flow verification in subsequent function checks the
+// TODO: ordered sequence of function ids in the flow
+
 // ============================================================
 // Flow Tracking Functions
 // ============================================================

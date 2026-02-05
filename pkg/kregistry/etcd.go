@@ -1569,15 +1569,23 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	resp.Header.Set("Ce-Aggsignature", sigHex)
 	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
 
-	// If flow tracking was enabled, pass the chain index back in response header
+	// If flow tracking was enabled, wait for the async recording to complete
+	// and pass the chain index back in response header
 	if resp.Request != nil {
-		flowChainIndex := resp.Request.Header.Get(FlowChainIndexHeader)
 		flowTrackingEnabled := resp.Request.Header.Get(FlowTrackingEnabledHeader)
-		if flowTrackingEnabled == "true" && flowChainIndex != "" {
-			resp.Header.Set("Ce-Flowchainindex", flowChainIndex)
-			logDev("Set Ce-Flowchainindex: %s", flowChainIndex)
+		if flowTrackingEnabled == "true" {
+			// Wait for the async flow recording to complete (timeout: 30 seconds)
+			chainIdx, err := WaitForFlowResult(resp.Request.Context(), 30*time.Second)
+			if err != nil {
+				logDev("Error waiting for flow result: %v", err)
+				return fmt.Errorf("flow recording failed: %w", err)
+			}
+			if chainIdx > 0 {
+				resp.Header.Set("Ce-Flowchainindex", fmt.Sprintf("%d", chainIdx))
+				logDev("Set Ce-Flowchainindex: %d", chainIdx)
+			}
 		} else {
-			logDev("Flow tracking not enabled or flow chain index missing, not setting Ce-Flowchainindex header")
+			logDev("Flow tracking not enabled, not setting Ce-Flowchainindex header")
 		}
 	}
 

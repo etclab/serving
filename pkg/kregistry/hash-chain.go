@@ -73,9 +73,7 @@ const (
 
 // Flow tracking header constants
 const (
-	// FlowChainIndexHeader is the internal header used to pass chain index from RoundTrip to EncryptResponseBody
-	FlowChainIndexHeader = "X-Flow-Chain-Index"
-	// FlowTrackingEnabledHeader is the internal header flag that flow tracking occurred
+	// FlowTrackingEnabledHeader is the internal header flag that flow tracking is enabled
 	FlowTrackingEnabledHeader = "X-Flow-Tracking-Enabled"
 )
 
@@ -87,6 +85,18 @@ type FlowRecord struct {
 	PodID       string `json:"pod_id"`
 	Timestamp   int64  `json:"timestamp"`
 }
+
+// FlowRecordResult holds the result of an async flow recording operation.
+type FlowRecordResult struct {
+	ChainIdx uint64
+	Err      error
+}
+
+// flowResultContextKey is the context key for storing the flow result channel.
+type flowResultContextKey struct{}
+
+// FlowResultChan is a channel that receives the result of async flow recording.
+type FlowResultChan <-chan FlowRecordResult
 
 // formatEntryKey returns the etcd key for a hash chain entry at the given index.
 // Uses zero-padded 20-digit format to ensure lexicographic order matches numeric order.
@@ -1272,7 +1282,8 @@ func (kr *KeyRegistry) RecordFlowProcessing(flowID string) (uint64, error) {
 	logDev("Recording flow processing: flowID=%s, serviceName=%s, dataKey=%s", flowID, kr.ServiceName, dataKey)
 
 	// Store with retry using the existing hash chain storage mechanism
-	err := kr.StoreWithHashChainAndRetry(dataKey, flowRecord, 3)
+	// Use 10 retries to handle contention from concurrent writers
+	err := kr.StoreWithHashChainAndRetry(dataKey, flowRecord, 10)
 	if err != nil {
 		// Check if it's already exists - this means replay detected at storage level
 		if strings.Contains(err.Error(), "already exists") {
@@ -1286,4 +1297,75 @@ func (kr *KeyRegistry) RecordFlowProcessing(flowID string) (uint64, error) {
 
 	logDev("Successfully recorded flow processing: flowID=%s, chainIdx=%d", flowID, chainIdx)
 	return chainIdx, nil
+}
+
+// StartFlowRecordingAsync starts recording flow processing in a background goroutine.
+// Returns a context with the result channel embedded, and the channel itself.
+// The caller should use WaitForFlowResult to get the result in EncryptResponseBody.
+func (kr *KeyRegistry) StartFlowRecordingAsync(ctx context.Context, flowID string) (context.Context, FlowResultChan) {
+	logDev := mutil.LogWithPrefix("dev - StartFlowRecordingAsync")
+
+	resultChan := make(chan FlowRecordResult, 1)
+
+	// Store the channel in context for EncryptResponseBody to retrieve
+	newCtx := context.WithValue(ctx, flowResultContextKey{}, resultChan)
+
+	go func() {
+		defer close(resultChan)
+
+		logDev("Starting async flow recording: flowID=%s", flowID)
+		chainIdx, err := kr.RecordFlowProcessing(flowID)
+
+		result := FlowRecordResult{
+			ChainIdx: chainIdx,
+			Err:      err,
+		}
+
+		logDev("Async flow recording complete: flowID=%s, chainIdx=%d, err=%v", flowID, chainIdx, err)
+		resultChan <- result
+	}()
+
+	return newCtx, resultChan
+}
+
+// GetFlowResultChanFromContext retrieves the flow result channel from the context.
+// Returns nil if no channel is present (flow tracking not enabled for this request).
+func GetFlowResultChanFromContext(ctx context.Context) FlowResultChan {
+	if ctx == nil {
+		return nil
+	}
+	ch, ok := ctx.Value(flowResultContextKey{}).(chan FlowRecordResult)
+	if !ok {
+		return nil
+	}
+	return ch
+}
+
+// WaitForFlowResult waits for the async flow recording to complete and returns the result.
+// If the context has no flow result channel, returns (0, nil) indicating flow tracking wasn't enabled.
+// Uses a timeout to avoid blocking forever.
+func WaitForFlowResult(ctx context.Context, timeout time.Duration) (uint64, error) {
+	logDev := mutil.LogWithPrefix("dev - WaitForFlowResult")
+
+	ch := GetFlowResultChanFromContext(ctx)
+	if ch == nil {
+		logDev("No flow result channel in context, flow tracking not enabled")
+		return 0, nil
+	}
+
+	select {
+	case result, ok := <-ch:
+		if !ok {
+			logDev("Flow result channel closed without result")
+			return 0, fmt.Errorf("flow result channel closed unexpectedly")
+		}
+		logDev("Got flow result: chainIdx=%d, err=%v", result.ChainIdx, result.Err)
+		return result.ChainIdx, result.Err
+	case <-time.After(timeout):
+		logDev("Timeout waiting for flow result after %v", timeout)
+		return 0, fmt.Errorf("timeout waiting for flow recording to complete")
+	case <-ctx.Done():
+		logDev("Context cancelled while waiting for flow result")
+		return 0, ctx.Err()
+	}
 }
