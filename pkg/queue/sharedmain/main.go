@@ -1190,6 +1190,14 @@ func initKeyRegistry() Option {
 			d.KeyRegistry.SigSk = d.Env.SigSk
 			d.KeyRegistry.AttestationReport = d.Env.EnclaveAttestationReport
 		}
+
+		// Decode and set GenesisHash for flow chain operations
+		if len(d.Env.GenesisHash) > 0 {
+			hashBytes, err := hex.DecodeString(string(bytes.TrimSpace(d.Env.GenesisHash)))
+			if err == nil {
+				d.KeyRegistry.GenesisHash = hashBytes
+			}
+		}
 	}
 }
 
@@ -1413,23 +1421,31 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		logDev("Skipping signature verification as VERIFY_SIGNATURE is %v.", os.Getenv("VERIFY_SIGNATURE"))
 	}
 
-	// Flow tracking: record that this service processed this message (nonce/flowID)
-	// This enables replay detection - if the same flow is processed twice by the same service, reject it
+	// Per-flow chain tracking: record this service's processing on the per-flow chain
+	// Each flow gets its own independent chain keyed by flow_id (Ce-Nonce header)
 	if os.Getenv("FLOW_TRACKING_ENABLED") == "true" && nonce != "" {
 		logDev("Flow tracking enabled, processing flow: %s", nonce)
 
-		// 1. Check for replay (this service already processed this flow)
-		if _, found := kregistry.IsFlowVerified(nonce, d.KeyRegistry.ServiceName); found {
-			logDev("Replay detected: flow %s already processed by service %s", nonce, d.KeyRegistry.ServiceName)
-			return nil, fmt.Errorf("replay detected: flow %s already processed by this service", nonce)
+		chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
+		position := slices.Index(chainedServices, d.KeyRegistry.ServiceName)
+
+		if position > 0 {
+			// Synchronous verification before forwarding to user container
+			result, verifyErr := d.KeyRegistry.VerifyFlowChain(req.Context(), nonce, d.KeyRegistry.GenesisHash)
+			if verifyErr != nil {
+				logDev("Flow chain verification failed for flow %s: %v", nonce, verifyErr)
+				return nil, fmt.Errorf("flow chain verification failed: %w", verifyErr)
+			}
+			posErr := d.KeyRegistry.VerifyFlowChainPosition(result.Entries, chainedServices, d.KeyRegistry.ServiceName)
+			if posErr != nil {
+				logDev("Flow chain position verification failed for flow %s: %v", nonce, posErr)
+				return nil, fmt.Errorf("flow chain position verification failed: %w", posErr)
+			}
 		}
 
-		// 2. Start async flow recording - runs in background while request is processed
-		// The result will be collected in EncryptResponseBody before sending response
-		newCtx, _ := d.KeyRegistry.StartFlowRecordingAsync(req.Context(), nonce)
+		// Async write (completed in EncryptResponseBody before response is sent)
+		newCtx, _ := d.KeyRegistry.StartFlowChainRecordingAsync(req.Context(), nonce)
 		req = req.WithContext(newCtx)
-
-		// 3. Mark that flow tracking is enabled so EncryptResponseBody knows to wait for result
 		req.Header.Set(kregistry.FlowTrackingEnabledHeader, "true")
 	} else {
 		logDev("Flow tracking disabled or nonce missing, skipping flow processing.")

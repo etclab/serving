@@ -135,6 +135,9 @@ type KeyRegistry struct {
 
 	Bgls03PublicParams   map[string]*bgls03.PublicParams
 	muBgls03PublicParams sync.RWMutex
+
+	// GenesisHash is the decoded genesis hash for flow chain operations
+	GenesisHash []byte
 }
 
 func (kr *KeyRegistry) StoreAggSignatureAndChain(nonce, functionChain, aggSignature string) {
@@ -1268,16 +1271,14 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	if resp.Request != nil {
 		flowTrackingEnabled := resp.Request.Header.Get(FlowTrackingEnabledHeader)
 		if flowTrackingEnabled == "true" {
-			// Wait for the async flow recording to complete (timeout: 30 seconds)
-			chainIdx, err := WaitForFlowResult(resp.Request.Context(), 30*time.Second)
+			// Wait for the async flow chain recording to complete (timeout: 30 seconds)
+			chainIdx, err := WaitForFlowChainResult(resp.Request.Context(), 30*time.Second)
 			if err != nil {
-				logDev("Error waiting for flow result: %v", err)
-				return fmt.Errorf("flow recording failed: %w", err)
+				logDev("Error waiting for flow chain result: %v", err)
+				return fmt.Errorf("flow chain recording failed: %w", err)
 			}
-			if chainIdx > 0 {
-				resp.Header.Set("Ce-Flowchainindex", fmt.Sprintf("%d", chainIdx))
-				logDev("Set Ce-Flowchainindex: %d", chainIdx)
-			}
+			resp.Header.Set("Ce-Flowchainindex", fmt.Sprintf("%d", chainIdx))
+			logDev("Set Ce-Flowchainindex: %d", chainIdx)
 		} else {
 			logDev("Flow tracking not enabled, not setting Ce-Flowchainindex header")
 		}

@@ -79,7 +79,6 @@ const (
 	HashChainEntryPrefix   = "lambada/audit/entry/"
 	EnclaveKeysPrefix      = "enclave-keys/"
 	EnclavePublicKeySuffix = "/attested-publicKey"
-	FlowMessagesPrefix     = "messages/"
 )
 
 // Flow tracking header constants
@@ -87,27 +86,6 @@ const (
 	// FlowTrackingEnabledHeader is the internal header flag that flow tracking is enabled
 	FlowTrackingEnabledHeader = "X-Flow-Tracking-Enabled"
 )
-
-// FlowRecord represents a flow processing record stored in the hash chain.
-// Each service records its processing of a message (identified by flowID/nonce).
-type FlowRecord struct {
-	FlowID      string `json:"flow_id"`
-	ServiceName string `json:"service_name"`
-	PodID       string `json:"pod_id"`
-	Timestamp   int64  `json:"timestamp"`
-}
-
-// FlowRecordResult holds the result of an async flow recording operation.
-type FlowRecordResult struct {
-	ChainIdx uint64
-	Err      error
-}
-
-// flowResultContextKey is the context key for storing the flow result channel.
-type flowResultContextKey struct{}
-
-// FlowResultChan is a channel that receives the result of async flow recording.
-type FlowResultChan <-chan FlowRecordResult
 
 // formatEntryKey returns the etcd key for a hash chain entry at the given index.
 // Uses zero-padded 20-digit format to ensure lexicographic order matches numeric order.
@@ -1244,11 +1222,12 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetry(
 // ============================================================
 
 // StoreEnclavePublicKeyWithHashChainVerified stores an enclave public key after
-// verifying the entire hash chain from genesis to current head.
-// This is used for the first write when no watcher is running yet.
+// verifying the hash chain up to the current head.
+// If the watcher has already verified part of the chain, verification starts
+// from the last verified index instead of re-verifying from genesis.
 //
 // The function follows the same logic as catchUpHashChain:
-// 1. Uses VerifyChainUpToHead to verify all entries from idx 1 up to current head
+// 1. Uses VerifyChainUpToHead to verify entries up to current head
 // 2. Updates watcher state with verified entries and data records
 // 3. Queues data records for pending processing (since our public key isn't published yet)
 // 4. Chains and writes our enclave public key (with optional BGLS signature keys)
@@ -1277,14 +1256,24 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithHashChainVerified(
 	dataKey := EnclaveKeysPrefix + podID + EnclavePublicKeySuffix
 	writerID := podID
 
-	// Use shared verification helper - verifies chain from genesis (same as catchUpHashChain)
+	// Check watcher's verified state - if the watcher (or a previous call) has already
+	// verified part of the chain, start from there instead of re-verifying from genesis.
+	watcherIdx, watcherDigest, _, _, _ := GetWatcherVerifiedState()
+
+	startIdx := uint64(1)
 	startDigest := genesisHash
 	if len(startDigest) == 0 {
 		logDev("Warning: No genesis hash provided, using zero hash")
 		startDigest = make([]byte, 32)
 	}
 
-	result, err := kr.VerifyChainUpToHead(ctx, 1, startDigest)
+	if watcherIdx > 0 && watcherDigest != nil {
+		startIdx = watcherIdx + 1
+		startDigest = watcherDigest
+		logDev("Using watcher verified state: starting from idx=%d", startIdx)
+	}
+
+	result, err := kr.VerifyChainUpToHead(ctx, startIdx, startDigest)
 	if err != nil {
 		return fmt.Errorf("chain verification failed: %w", err)
 	}
@@ -1487,153 +1476,3 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
 	return fmt.Errorf("failed to store enclave public key with verified chain after %d attempts", maxRetries)
 }
 
-// ============================================================
-// Flow Tracking Functions
-// ============================================================
-
-// formatFlowDataKey returns the etcd key for a flow record.
-// Key format: messages/{flow_id}/{service_name}
-// Example: messages/1738627200/validate-fun
-func formatFlowDataKey(flowID, serviceName string) string {
-	return fmt.Sprintf("%s%s/%s", FlowMessagesPrefix, flowID, serviceName)
-}
-
-// parseFlowDataKey extracts flowID and serviceName from a flow data key.
-// Returns empty strings if the key doesn't match the expected format.
-func parseFlowDataKey(dataKey string) (flowID, serviceName string) {
-	if !strings.HasPrefix(dataKey, FlowMessagesPrefix) {
-		return "", ""
-	}
-
-	// Remove "messages/" prefix
-	rest := strings.TrimPrefix(dataKey, FlowMessagesPrefix)
-
-	// Split: flow_id/service_name
-	parts := strings.SplitN(rest, "/", 2)
-	if len(parts) != 2 {
-		return "", ""
-	}
-
-	return parts[0], parts[1]
-}
-
-// isFlowDataKey checks if a data key is a flow record key.
-func isFlowDataKey(dataKey string) bool {
-	return strings.HasPrefix(dataKey, FlowMessagesPrefix)
-}
-
-// RecordFlowProcessing stores a flow processing record in the hash chain.
-// This records that this service (kr.ServiceName) has processed the given flowID.
-// Returns the chain index where the record was stored, or an error.
-//
-// This is called during RoundTrip to record each message processed by this service,
-// enabling replay detection (same flow processed twice by same service = replay).
-func (kr *KeyRegistry) RecordFlowProcessing(flowID string) (uint64, error) {
-	logDev := mutil.LogWithPrefix("dev - RecordFlowProcessing")
-
-	if flowID == "" {
-		return 0, fmt.Errorf("flowID is empty")
-	}
-	if kr.ServiceName == "" {
-		return 0, fmt.Errorf("service name is not set")
-	}
-
-	dataKey := formatFlowDataKey(flowID, kr.ServiceName)
-
-	flowRecord := &FlowRecord{
-		FlowID:      flowID,
-		ServiceName: kr.ServiceName,
-		PodID:       kr.PodId,
-		Timestamp:   time.Now().Unix(),
-	}
-
-	logDev("Recording flow processing: flowID=%s, serviceName=%s, dataKey=%s", flowID, kr.ServiceName, dataKey)
-
-	// Store with retry using the existing hash chain storage mechanism
-	// Use 10 retries to handle contention from concurrent writers
-	err := kr.StoreWithHashChainAndRetry(dataKey, flowRecord, 10)
-	if err != nil {
-		// Check if it's already exists - this means replay detected at storage level
-		if strings.Contains(err.Error(), "already exists") {
-			return 0, fmt.Errorf("replay detected at storage: flow %s already recorded by %s", flowID, kr.ServiceName)
-		}
-		return 0, fmt.Errorf("failed to record flow processing: %w", err)
-	}
-
-	// Get the chain index from watcher state (it's the latest verified index)
-	chainIdx, _, _, _, _ := GetWatcherVerifiedState()
-
-	logDev("Successfully recorded flow processing: flowID=%s, chainIdx=%d", flowID, chainIdx)
-	return chainIdx, nil
-}
-
-// StartFlowRecordingAsync starts recording flow processing in a background goroutine.
-// Returns a context with the result channel embedded, and the channel itself.
-// The caller should use WaitForFlowResult to get the result in EncryptResponseBody.
-func (kr *KeyRegistry) StartFlowRecordingAsync(ctx context.Context, flowID string) (context.Context, FlowResultChan) {
-	logDev := mutil.LogWithPrefix("dev - StartFlowRecordingAsync")
-
-	resultChan := make(chan FlowRecordResult, 1)
-
-	// Store the channel in context for EncryptResponseBody to retrieve
-	newCtx := context.WithValue(ctx, flowResultContextKey{}, resultChan)
-
-	go func() {
-		defer close(resultChan)
-
-		logDev("Starting async flow recording: flowID=%s", flowID)
-		chainIdx, err := kr.RecordFlowProcessing(flowID)
-
-		result := FlowRecordResult{
-			ChainIdx: chainIdx,
-			Err:      err,
-		}
-
-		logDev("Async flow recording complete: flowID=%s, chainIdx=%d, err=%v", flowID, chainIdx, err)
-		resultChan <- result
-	}()
-
-	return newCtx, resultChan
-}
-
-// GetFlowResultChanFromContext retrieves the flow result channel from the context.
-// Returns nil if no channel is present (flow tracking not enabled for this request).
-func GetFlowResultChanFromContext(ctx context.Context) FlowResultChan {
-	if ctx == nil {
-		return nil
-	}
-	ch, ok := ctx.Value(flowResultContextKey{}).(chan FlowRecordResult)
-	if !ok {
-		return nil
-	}
-	return ch
-}
-
-// WaitForFlowResult waits for the async flow recording to complete and returns the result.
-// If the context has no flow result channel, returns (0, nil) indicating flow tracking wasn't enabled.
-// Uses a timeout to avoid blocking forever.
-func WaitForFlowResult(ctx context.Context, timeout time.Duration) (uint64, error) {
-	logDev := mutil.LogWithPrefix("dev - WaitForFlowResult")
-
-	ch := GetFlowResultChanFromContext(ctx)
-	if ch == nil {
-		logDev("No flow result channel in context, flow tracking not enabled")
-		return 0, nil
-	}
-
-	select {
-	case result, ok := <-ch:
-		if !ok {
-			logDev("Flow result channel closed without result")
-			return 0, fmt.Errorf("flow result channel closed unexpectedly")
-		}
-		logDev("Got flow result: chainIdx=%d, err=%v", result.ChainIdx, result.Err)
-		return result.ChainIdx, result.Err
-	case <-time.After(timeout):
-		logDev("Timeout waiting for flow result after %v", timeout)
-		return 0, fmt.Errorf("timeout waiting for flow recording to complete")
-	case <-ctx.Done():
-		logDev("Context cancelled while waiting for flow result")
-		return 0, ctx.Err()
-	}
-}

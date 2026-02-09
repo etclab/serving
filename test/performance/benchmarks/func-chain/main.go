@@ -305,7 +305,7 @@ func getCloudEventHeaders() http.Header {
 		logOnce.Do(func() {
 			log.Printf("ATTACH_SIGNATURE is true, adding nonce to header")
 		})
-		headers.Set("Ce-Nonce", fmt.Sprintf("%d", time.Now().Unix()))
+		headers.Set("Ce-Nonce", uuid.New().String())
 	}
 
 	return headers
