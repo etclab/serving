@@ -1430,6 +1430,12 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if os.Getenv("FLOW_TRACKING_ENABLED") == "true" && nonce != "" {
 		logDev("Flow tracking enabled, processing flow: %s", nonce)
 
+		// Replay protection: reject requests for flows that have already been anchored
+		if kregistry.IsFlowAnchored(nonce) {
+			logDev("Rejecting request: flow %s has already been anchored (replay detected)", nonce)
+			return nil, fmt.Errorf("replay attack detected: flow %s has already been processed and anchored", nonce)
+		}
+
 		chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
 		position := slices.Index(chainedServices, d.KeyRegistry.ServiceName)
 
