@@ -699,6 +699,15 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(attestedKey.PublicKey))
 	}
 
+	// Special case: "auditor" writerID doesn't require attestation verification
+	// The auditor runs outside the cluster without SGX and uses client Ed25519 keys
+	if writerID == "auditor" {
+		logDev("Skipping attestation verification for auditor writerID")
+		pubKey := ed25519.PublicKey(attestedKey.PublicKey)
+		verifiedPubKeyCache.Set(writerID, pubKey)
+		return pubKey, nil
+	}
+
 	// Strict mode: fail if attestation report is empty/nil
 	if len(attestedKey.Attestation) == 0 {
 		return nil, fmt.Errorf("attestation report is empty for writerID %s", writerID)

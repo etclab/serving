@@ -133,6 +133,7 @@ func (vs *VerifiedState) UpdateLastScannedRev(rev int64) {
 // getWriterPublicKeyNoAttestation fetches a writer's Ed25519 public key from etcd
 // without verifying SGX attestation. The auditor trusts the global chain's
 // integrity (keys were CAS-written and verified by SGX watchers).
+// Special case: if writerID is "auditor", returns the client's public key from cache.
 func getWriterPublicKeyNoAttestation(client *clientv3.Client, writerID string) (ed25519.PublicKey, error) {
 	// TODO: later on verify the attestation
 	pubKeyCacheMu.RLock()
@@ -141,6 +142,17 @@ func getWriterPublicKeyNoAttestation(client *clientv3.Client, writerID string) (
 		return cached, nil
 	}
 	pubKeyCacheMu.RUnlock()
+
+	// Special case: "auditor" writerID uses the client's public key (no etcd lookup needed)
+	// The client is working as the auditor, so return the cached auditor public key
+	if writerID == "auditor" {
+		pubKeyCacheMu.RLock()
+		defer pubKeyCacheMu.RUnlock()
+		if auditorKey, ok := pubKeyCache["auditor"]; ok {
+			return auditorKey, nil
+		}
+		return nil, fmt.Errorf("auditor public key not found in cache")
+	}
 
 	dataKey := kregistry.EnclaveKeysPrefix + writerID + kregistry.EnclavePublicKeySuffix
 
