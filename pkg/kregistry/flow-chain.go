@@ -296,78 +296,66 @@ func (kr *KeyRegistry) WriteFlowChainFirst(ctx context.Context, flowID string, g
 func (kr *KeyRegistry) VerifyFlowChain(ctx context.Context, flowID string, genesisHash []byte) (*FlowChainVerifyResult, error) {
 	logDev := mutil.LogWithPrefix("dev - VerifyFlowChain")
 
-	headKey := flowHeadKey(flowID)
-
-	// 1. Fetch head
-	headResp, err := kr.Client().Get(ctx, headKey)
+	// Single prefix query to fetch all flow data (head, entries, data records)
+	flowPrefix := FlowChainPrefix + flowID + "/"
+	resp, err := kr.Client().Get(ctx, flowPrefix, clientv3.WithPrefix())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get flow chain head: %w", err)
-	}
-	if len(headResp.Kvs) == 0 {
-		return nil, fmt.Errorf("flow chain head not found for flow %s", flowID)
+		return nil, fmt.Errorf("failed to fetch flow chain data: %w", err)
 	}
 
+	if len(resp.Kvs) == 0 {
+		return nil, fmt.Errorf("flow chain not found for flow %s", flowID)
+	}
+
+	// Parse response into head, entries, and data records
 	var head FlowHeadRecord
-	if err := json.Unmarshal(headResp.Kvs[0].Value, &head); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal flow chain head: %w", err)
-	}
-	headModRev := headResp.Kvs[0].ModRevision
+	var headModRev int64
+	var headFound bool
+	entries := make([]*FlowEntryRecord, 0)
+	dataRecords := make(map[string]*FlowDataRecord)
 
-	logDev("Flow chain head: flowID=%s, idx=%d", flowID, head.Idx)
+	headKey := flowHeadKey(flowID)
+	entryPrefix := FlowChainPrefix + flowID + "/entry/"
+	dataPrefix := FlowChainPrefix + flowID + "/data/"
 
-	// 2. Batch-fetch all entries 0..head.Idx via range query
-	startKey := flowEntryKey(flowID, 0)
-	endKey := flowEntryKey(flowID, head.Idx+1)
+	for _, kv := range resp.Kvs {
+		key := string(kv.Key)
 
-	entryResp, err := kr.Client().Get(ctx, startKey, clientv3.WithRange(endKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch flow chain entries: %w", err)
-	}
-
-	entries := make([]*FlowEntryRecord, 0, len(entryResp.Kvs))
-	for _, kv := range entryResp.Kvs {
-		var entry FlowEntryRecord
-		if err := json.Unmarshal(kv.Value, &entry); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal flow entry: %w", err)
-		}
-		entries = append(entries, &entry)
-	}
-
-	// Sort by index
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Idx < entries[j].Idx
-	})
-
-	// 3. Batch-fetch all referenced data records
-	dataKeys := make([]string, len(entries))
-	for i, entry := range entries {
-		dataKeys[i] = entry.DataKey
-	}
-
-	dataRecords := make(map[string]*FlowDataRecord, len(entries))
-	if len(dataKeys) > 0 {
-		ops := make([]clientv3.Op, len(dataKeys))
-		for i, key := range dataKeys {
-			ops[i] = clientv3.OpGet(key)
-		}
-
-		txnResp, err := kr.Client().Txn(ctx).Then(ops...).Commit()
-		if err != nil {
-			return nil, fmt.Errorf("failed to batch fetch flow data records: %w", err)
-		}
-
-		for i, key := range dataKeys {
-			rangeResp := txnResp.Responses[i].GetResponseRange()
-			if len(rangeResp.Kvs) == 0 {
-				return nil, fmt.Errorf("flow data not found at %s", key)
+		if key == headKey {
+			// Parse head record
+			if err := json.Unmarshal(kv.Value, &head); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal flow chain head: %w", err)
 			}
+			headModRev = kv.ModRevision
+			headFound = true
+		} else if strings.HasPrefix(key, entryPrefix) {
+			// Parse entry record
+			var entry FlowEntryRecord
+			if err := json.Unmarshal(kv.Value, &entry); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal flow entry: %w", err)
+			}
+			entries = append(entries, &entry)
+		} else if strings.HasPrefix(key, dataPrefix) {
+			// Parse data record
 			var record FlowDataRecord
-			if err := json.Unmarshal(rangeResp.Kvs[0].Value, &record); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal flow data record at %s: %w", key, err)
+			if err := json.Unmarshal(kv.Value, &record); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal flow data record: %w", err)
 			}
 			dataRecords[record.FuncName] = &record
 		}
 	}
+
+	if !headFound {
+		return nil, fmt.Errorf("flow chain head not found for flow %s", flowID)
+	}
+
+	// Sort entries by index
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Idx < entries[j].Idx
+	})
+
+	logDev("Fetched flow chain in single request: flowID=%s, head.idx=%d, entries=%d, dataRecords=%d",
+		flowID, head.Idx, len(entries), len(dataRecords))
 
 	// 4. Verify each entry: chain link, entry_sig, data_sig
 	prevDigest := genesisHash
