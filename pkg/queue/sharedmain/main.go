@@ -1198,6 +1198,10 @@ func initKeyRegistry() Option {
 				d.KeyRegistry.GenesisHash = hashBytes
 			}
 		}
+
+		if d.Env.ClientPubKey != nil {
+			d.KeyRegistry.ClientPubKey = d.Env.ClientPubKey
+		}
 	}
 }
 

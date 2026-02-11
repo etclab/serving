@@ -137,7 +137,8 @@ type KeyRegistry struct {
 	muBgls03PublicParams sync.RWMutex
 
 	// GenesisHash is the decoded genesis hash for flow chain operations
-	GenesisHash []byte
+	GenesisHash  []byte
+	ClientPubKey ed25519.PublicKey
 }
 
 func (kr *KeyRegistry) StoreAggSignatureAndChain(nonce, functionChain, aggSignature string) {

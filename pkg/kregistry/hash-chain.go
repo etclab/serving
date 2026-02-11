@@ -60,8 +60,9 @@ type HashChainDataRecord struct {
 // AttestedPublicKey packs the enclave public key, attestation report, and optionally
 // BGLS signature keys together. This is stored as the Payload in HashChainDataRecord.
 // The attestation report binds all keys together via:
-//   SHA256(podId || ed25519PubKey || SHA256(bglsPkmHash)) if signature is enabled
-//   SHA256(podId || ed25519PubKey) if signature is disabled
+//
+//	SHA256(podId || ed25519PubKey || SHA256(bglsPkmHash)) if signature is enabled
+//	SHA256(podId || ed25519PubKey) if signature is disabled
 type AttestedPublicKey struct {
 	// Ed25519 public key for hash chain signatures
 	PublicKey   []byte `json:"public_key"`
@@ -146,9 +147,9 @@ type SealedEnclaveKeypair struct {
 
 	// BGLS03 signature keys (optional - only present when signature is enabled)
 	SignatureEnabled bool   `json:"signature_enabled"`
-	SigPkBytes       []byte `json:"sig_pk_bytes,omitempty"`  // Serialized bgls03.PublicKey
-	SigSkBytes       []byte `json:"sig_sk_bytes,omitempty"`  // Serialized bgls03.PrivateKey
-	SigPpBytes       []byte `json:"sig_pp_bytes,omitempty"`  // Serialized bgls03.PublicParams
+	SigPkBytes       []byte `json:"sig_pk_bytes,omitempty"` // Serialized bgls03.PublicKey
+	SigSkBytes       []byte `json:"sig_sk_bytes,omitempty"` // Serialized bgls03.PrivateKey
+	SigPpBytes       []byte `json:"sig_pp_bytes,omitempty"` // Serialized bgls03.PublicParams
 }
 
 // SealEnclaveKeypairWithSignature persists the enclave keypair and optional BGLS signature keys
@@ -654,8 +655,9 @@ func (kr *KeyRegistry) getEntry(ctx context.Context, entryKey string) (*HashChai
 // Trust chain:
 // 1. Verify attestation report (Intel's root of trust)
 // 2. Verify report data binding:
-//    - If signature enabled: SHA256(writerID || ed25519PubKey || SHA256(bglsPkmHash))
-//    - If signature disabled: SHA256(writerID || ed25519PubKey)
+//   - If signature enabled: SHA256(writerID || ed25519PubKey || SHA256(bglsPkmHash))
+//   - If signature disabled: SHA256(writerID || ed25519PubKey)
+//
 // 3. Trust the public key (and BGLS keys if present)
 // 4. Verify data signature for integrity
 // 5. Use trusted public key for hash chain signature verification
@@ -673,6 +675,15 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 	if cachedKey := verifiedPubKeyCache.Get(writerID); cachedKey != nil {
 		logDev("Using cached public key for writerID %s", writerID)
 		return cachedKey, nil
+	}
+
+	// Special case: "auditor" writerID doesn't require attestation verification
+	// The auditor runs outside the cluster without SGX and uses client Ed25519 keys
+	if writerID == "auditor" {
+		logDev("Using client's public key for records signed by auditor")
+		pubKey := kr.ClientPubKey
+		verifiedPubKeyCache.Set(writerID, pubKey)
+		return pubKey, nil
 	}
 
 	dataKey := EnclaveKeysPrefix + writerID + EnclavePublicKeySuffix
@@ -697,15 +708,6 @@ func (kr *KeyRegistry) getWriterPublicKey(ctx context.Context, writerID string) 
 
 	if len(attestedKey.PublicKey) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(attestedKey.PublicKey))
-	}
-
-	// Special case: "auditor" writerID doesn't require attestation verification
-	// The auditor runs outside the cluster without SGX and uses client Ed25519 keys
-	if writerID == "auditor" {
-		logDev("Skipping attestation verification for auditor writerID")
-		pubKey := ed25519.PublicKey(attestedKey.PublicKey)
-		verifiedPubKeyCache.Set(writerID, pubKey)
-		return pubKey, nil
 	}
 
 	// Strict mode: fail if attestation report is empty/nil
@@ -1511,4 +1513,3 @@ func (kr *KeyRegistry) StoreEnclavePublicKeyWithRetryVerified(
 
 	return fmt.Errorf("failed to store enclave public key with verified chain after %d attempts", maxRetries)
 }
-
