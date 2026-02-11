@@ -1439,6 +1439,7 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
 		position := slices.Index(chainedServices, d.KeyRegistry.ServiceName)
 
+		var verifyResult *kregistry.FlowChainVerifyResult
 		if position > 0 {
 			// Synchronous verification before forwarding to user container
 			result, verifyErr := d.KeyRegistry.VerifyFlowChain(req.Context(), nonce, d.KeyRegistry.GenesisHash)
@@ -1451,10 +1452,12 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				logDev("Flow chain position verification failed for flow %s: %v", nonce, posErr)
 				return nil, fmt.Errorf("flow chain position verification failed: %w", posErr)
 			}
+			verifyResult = result // Cache for async write
 		}
 
 		// Async write (completed in EncryptResponseBody before response is sent)
-		newCtx, _ := d.KeyRegistry.StartFlowChainRecordingAsync(req.Context(), nonce)
+		// Pass verification result to avoid re-verifying in WriteFlowChainSubsequent
+		newCtx, _ := d.KeyRegistry.StartFlowChainRecordingAsync(req.Context(), nonce, verifyResult)
 		req = req.WithContext(newCtx)
 		req.Header.Set(kregistry.FlowTrackingEnabledHeader, "true")
 	} else {

@@ -72,6 +72,9 @@ type FlowChainResult struct {
 // flowChainResultContextKey is the context key for storing the flow chain result channel.
 type flowChainResultContextKey struct{}
 
+// flowChainVerifyResultContextKey is the context key for storing the cached verification result.
+type flowChainVerifyResultContextKey struct{}
+
 // ============================================================
 // Key Formatting Functions
 // ============================================================
@@ -466,7 +469,7 @@ func (kr *KeyRegistry) VerifyFlowChainPosition(entries []*FlowEntryRecord, chain
 
 // WriteFlowChainSubsequent writes a subsequent entry in a per-flow chain.
 // This is called by functions at position > 0.
-// It verifies the existing chain, checks position ordering, then appends.
+// It uses the cached verification result from context if available, otherwise verifies the chain.
 func (kr *KeyRegistry) WriteFlowChainSubsequent(ctx context.Context, flowID string, genesisHash []byte) (uint64, error) {
 	logDev := mutil.LogWithPrefix("dev - WriteFlowChainSubsequent")
 
@@ -474,19 +477,26 @@ func (kr *KeyRegistry) WriteFlowChainSubsequent(ctx context.Context, flowID stri
 		return 0, fmt.Errorf("enclave private key is nil")
 	}
 
-	// 1. Full chain verification
-	// TODO: we don't need to verify the entire chain here as it was already verified
-	// TODO: before we started processing. save the result somewhere to avoid repeating it
-	result, err := kr.VerifyFlowChain(ctx, flowID, genesisHash)
-	if err != nil {
-		return 0, fmt.Errorf("flow chain verification failed: %w", err)
-	}
+	// 1. Try to get cached verification result from context
+	var result *FlowChainVerifyResult
+	if cachedResult := GetFlowChainVerifyResultFromContext(ctx); cachedResult != nil {
+		logDev("Using cached verification result for flow %s", flowID)
+		result = cachedResult
+	} else {
+		// Fallback: verify the chain if no cached result (shouldn't happen in normal flow)
+		logDev("No cached verification result, verifying flow chain for %s", flowID)
+		var err error
+		result, err = kr.VerifyFlowChain(ctx, flowID, genesisHash)
+		if err != nil {
+			return 0, fmt.Errorf("flow chain verification failed: %w", err)
+		}
 
-	// 2. Position verification
-	chainedServices := kr.GetFunctionChainFromEnv()
-	err = kr.VerifyFlowChainPosition(result.Entries, chainedServices, kr.ServiceName)
-	if err != nil {
-		return 0, fmt.Errorf("flow chain position verification failed: %w", err)
+		// Position verification (only needed if we just verified)
+		chainedServices := kr.GetFunctionChainFromEnv()
+		err = kr.VerifyFlowChainPosition(result.Entries, chainedServices, kr.ServiceName)
+		if err != nil {
+			return 0, fmt.Errorf("flow chain position verification failed: %w", err)
+		}
 	}
 
 	// 3. Build new records at idx = verifiedIdx + 1
@@ -578,7 +588,8 @@ func (kr *KeyRegistry) WriteFlowChainSubsequent(ctx context.Context, flowID stri
 // RecordFlowOnChain records this service's processing on the per-flow chain.
 // It determines position from FUNCTION_CHAIN env var and calls the appropriate write method.
 // Includes retry with exponential backoff for transaction conflicts and head-not-found.
-func (kr *KeyRegistry) RecordFlowOnChain(flowID string) (uint64, error) {
+// The baseCtx should contain the cached verification result if available.
+func (kr *KeyRegistry) RecordFlowOnChain(baseCtx context.Context, flowID string) (uint64, error) {
 	logDev := mutil.LogWithPrefix("dev - RecordFlowOnChain")
 
 	if flowID == "" {
@@ -601,7 +612,8 @@ func (kr *KeyRegistry) RecordFlowOnChain(flowID string) (uint64, error) {
 	maxBackoff := 5 * time.Second
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Create timeout context from baseCtx to preserve cached verification result
+		ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
 
 		var idx uint64
 		var err error
@@ -656,18 +668,27 @@ func addFlowJitter(d time.Duration) time.Duration {
 // StartFlowChainRecordingAsync starts recording flow processing on the per-flow chain
 // in a background goroutine. Returns a context with the result channel embedded,
 // and the channel itself.
-func (kr *KeyRegistry) StartFlowChainRecordingAsync(ctx context.Context, flowID string) (context.Context, <-chan FlowChainResult) {
+// If verifyResult is provided (non-nil), it will be cached in the context to avoid
+// re-verification in WriteFlowChainSubsequent().
+func (kr *KeyRegistry) StartFlowChainRecordingAsync(ctx context.Context, flowID string, verifyResult *FlowChainVerifyResult) (context.Context, <-chan FlowChainResult) {
 	logDev := mutil.LogWithPrefix("dev - StartFlowChainRecordingAsync")
 
 	resultChan := make(chan FlowChainResult, 1)
 
 	newCtx := context.WithValue(ctx, flowChainResultContextKey{}, resultChan)
 
+	// Cache the verification result if provided
+	if verifyResult != nil {
+		logDev("Caching verification result for flow %s (idx=%d)", flowID, verifyResult.VerifiedIdx)
+		newCtx = context.WithValue(newCtx, flowChainVerifyResultContextKey{}, verifyResult)
+	}
+
 	go func() {
 		defer close(resultChan)
 
 		logDev("Starting async flow chain recording: flowID=%s", flowID)
-		idx, err := kr.RecordFlowOnChain(flowID)
+		// Pass newCtx to preserve cached verification result
+		idx, err := kr.RecordFlowOnChain(newCtx, flowID)
 
 		result := FlowChainResult{
 			FlowIdx: idx,
@@ -691,6 +712,18 @@ func GetFlowChainResultFromContext(ctx context.Context) <-chan FlowChainResult {
 		return nil
 	}
 	return ch
+}
+
+// GetFlowChainVerifyResultFromContext retrieves the cached verification result from the context.
+func GetFlowChainVerifyResultFromContext(ctx context.Context) *FlowChainVerifyResult {
+	if ctx == nil {
+		return nil
+	}
+	result, ok := ctx.Value(flowChainVerifyResultContextKey{}).(*FlowChainVerifyResult)
+	if !ok {
+		return nil
+	}
+	return result
 }
 
 // WaitForFlowChainResult waits for the async flow chain recording to complete.
