@@ -551,6 +551,33 @@ func computeNewDigest(prevDigest []byte, entryFieldsHash []byte, entry *HashChai
 }
 
 // ============================================================
+// Exported Wrappers for External Verifiers (e.g., auditor)
+// ============================================================
+
+// FormatEntryKey returns the etcd key for a global chain entry at the given index.
+func FormatEntryKey(idx uint64) string { return formatEntryKey(idx) }
+
+// ComputeHeadSignatureMessage creates the message to sign for the global chain head.
+func ComputeHeadSignatureMessage(idx uint64, writerID string, digest []byte) []byte {
+	return computeHeadSignatureMessage(idx, writerID, digest)
+}
+
+// ComputeEntrySignatureMessage creates the message to sign for a global chain entry.
+func ComputeEntrySignatureMessage(entry *HashChainEntry) []byte {
+	return computeEntrySignatureMessage(entry)
+}
+
+// ComputeDataSignatureMessage creates the message to sign for a global chain data record.
+func ComputeDataSignatureMessage(dataKey string, idx uint64, payloadHash []byte, writerID string) []byte {
+	return computeDataSignatureMessage(dataKey, idx, payloadHash, writerID)
+}
+
+// ComputeNewDigest computes the chain digest for a global chain entry.
+func ComputeNewDigest(prevDigest []byte, entryFieldsHash []byte, entry *HashChainEntry) []byte {
+	return computeNewDigest(prevDigest, entryFieldsHash, entry)
+}
+
+// ============================================================
 // Hash Chain Methods on KeyRegistry
 // ============================================================
 

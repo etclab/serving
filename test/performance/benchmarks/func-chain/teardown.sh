@@ -1,6 +1,7 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
 STRATEGY="${1:-both}"
 ns=default
@@ -79,5 +80,8 @@ kubectl wait --for=delete leases --all -n "$ns" --timeout=60s 2>/dev/null || tru
 
 # Clear sealed state files from minikube node
 minikube ssh -- sudo rm -rf /var/lib/sealed-state/*
+
+echo "Restart etcd..."
+"$REPO_ROOT/dev/setup-etcd.sh"
 
 echo "Teardown complete."

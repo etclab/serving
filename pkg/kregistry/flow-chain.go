@@ -155,6 +155,39 @@ func computeFlowDigest(prevDigest []byte, entryFieldsHash []byte, entry *FlowEnt
 }
 
 // ============================================================
+// Exported Wrappers for External Verifiers (e.g., auditor)
+// ============================================================
+
+// FlowHeadKey returns the etcd key for a flow's head record.
+func FlowHeadKey(flowID string) string { return flowHeadKey(flowID) }
+
+// FlowEntryKey returns the etcd key for a flow entry at the given index.
+func FlowEntryKey(flowID string, idx uint64) string { return flowEntryKey(flowID, idx) }
+
+// FlowDataKey returns the etcd key for a flow's data record for a given function.
+func FlowDataKey(flowID, funcName string) string { return flowDataKey(flowID, funcName) }
+
+// ComputeFlowHeadSignatureMessage creates the message to sign for a flow head record.
+func ComputeFlowHeadSignatureMessage(flowID string, idx uint64, digest []byte) []byte {
+	return computeFlowHeadSignatureMessage(flowID, idx, digest)
+}
+
+// ComputeFlowEntrySignatureMessage creates the message to sign for a flow entry record.
+func ComputeFlowEntrySignatureMessage(entry *FlowEntryRecord) []byte {
+	return computeFlowEntrySignatureMessage(entry)
+}
+
+// ComputeFlowDataSignatureMessage creates the message to sign for a flow data record.
+func ComputeFlowDataSignatureMessage(record *FlowDataRecord) []byte {
+	return computeFlowDataSignatureMessage(record)
+}
+
+// ComputeFlowDigest computes the chain digest for a flow entry.
+func ComputeFlowDigest(prevDigest []byte, entryFieldsHash []byte, entry *FlowEntryRecord) []byte {
+	return computeFlowDigest(prevDigest, entryFieldsHash, entry)
+}
+
+// ============================================================
 // Write Path - First Function (Position 0)
 // ============================================================
 

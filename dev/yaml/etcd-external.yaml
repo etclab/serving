@@ -1,0 +1,18 @@
+# Separate service for external etcd access
+# This is in addition to the headless service needed for etcd peer discovery
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-external
+  namespace: knative-serving
+spec:
+  type: NodePort
+  selector:
+    app: etcd
+  ports:
+  - name: etcd-client
+    port: 2379
+    targetPort: 2379
+    # NodePort will be auto-assigned in range 30000-32767
+    # You can specify a fixed port like: nodePort: 32379
