@@ -23,6 +23,21 @@ import (
 // Watch-Based Hash Chain Verification
 // ============================================================
 
+// FlowAnchorPayload is the JSON payload stored as a global chain data record
+// when a batch of completed flows is anchored by the auditor.
+type FlowAnchorPayload struct {
+	AnchoredFlows []FlowAnchorEntry `json:"anchored_flows"`
+	Timestamp     string            `json:"timestamp"`
+}
+
+// FlowAnchorEntry records the summary of a single verified and anchored flow.
+type FlowAnchorEntry struct {
+	FlowID     string   `json:"flow_id"`
+	HeadIdx    uint64   `json:"head_idx"`
+	HeadDigest []byte   `json:"head_digest"`
+	Functions  []string `json:"functions"`
+}
+
 // PendingKeyRecord stores a key record that is waiting to be processed.
 // This is used when key records are received before the enclave public key
 // has been published, so processing must be deferred.
@@ -53,6 +68,10 @@ type HashChainWatcher struct {
 	// Pending records for deferred processing (separate mutex from verified state)
 	pendingMu      sync.Mutex
 	pendingRecords []PendingKeyRecord // Key records awaiting processing
+
+	// Anchored flows tracking (flows that have been verified and anchored to global chain)
+	anchoredFlowsMu sync.RWMutex
+	anchoredFlows   map[string]*FlowAnchorEntry // Anchored flows by flowID
 }
 
 // enclavePublicKeyPublished tracks whether this pod's enclave public key has been
@@ -65,6 +84,7 @@ var chainWatcher = &HashChainWatcher{
 	verifiedHeads:       make(map[uint64]*HashChainHead),
 	verifiedEntries:     make(map[uint64]*HashChainEntry),
 	verifiedDataRecords: make(map[string]*HashChainDataRecord),
+	anchoredFlows:       make(map[string]*FlowAnchorEntry),
 }
 
 // GetVerifiedState returns the current verified state from the watcher.
@@ -97,6 +117,39 @@ func MarkEnclavePublicKeyPublished() {
 // has been successfully published to the hash chain.
 func IsEnclavePublicKeyPublished() bool {
 	return enclavePublicKeyPublished.Load()
+}
+
+// IsFlowAnchored checks if a flow has been anchored to the global hash chain.
+// Returns true if the flow has been verified and anchored by the auditor.
+func IsFlowAnchored(flowID string) bool {
+	chainWatcher.anchoredFlowsMu.RLock()
+	defer chainWatcher.anchoredFlowsMu.RUnlock()
+	_, exists := chainWatcher.anchoredFlows[flowID]
+	return exists
+}
+
+// GetAnchoredFlow retrieves the anchor entry for a flow if it has been anchored.
+// Returns the FlowAnchorEntry and true if found, nil and false otherwise.
+func GetAnchoredFlow(flowID string) (*FlowAnchorEntry, bool) {
+	chainWatcher.anchoredFlowsMu.RLock()
+	defer chainWatcher.anchoredFlowsMu.RUnlock()
+	entry, exists := chainWatcher.anchoredFlows[flowID]
+	return entry, exists
+}
+
+// GetAllAnchoredFlows returns a copy of all anchored flows.
+// This is useful for auditing or reporting purposes.
+func GetAllAnchoredFlows() map[string]*FlowAnchorEntry {
+	chainWatcher.anchoredFlowsMu.RLock()
+	defer chainWatcher.anchoredFlowsMu.RUnlock()
+
+	result := make(map[string]*FlowAnchorEntry, len(chainWatcher.anchoredFlows))
+	for flowID, entry := range chainWatcher.anchoredFlows {
+		// Make a copy to avoid external modification
+		entryCopy := *entry
+		result[flowID] = &entryCopy
+	}
+	return result
 }
 
 // addPendingKeyRecord adds a key record to the pending queue for later processing.
@@ -417,6 +470,11 @@ func (kr *KeyRegistry) catchUpHashChain(ctx context.Context) (int64, error) {
 	for dataKey, dataRecord := range result.DataRecords {
 		entry := result.Entries[dataRecord.Idx]
 		if entry != nil {
+			// Check if this is an ANCHOR_FLOWS entry and process anchored flows
+			if entry.OpType == "ANCHOR_FLOWS" {
+				logDev("Detected ANCHOR_FLOWS entry during catch-up at idx=%d", entry.Idx)
+				chainWatcher.storeAnchoredFlows(dataRecord)
+			}
 			// Process key records (non-blocking)
 			kr.processAllVerifiedKeys(dataKey, dataRecord, entry.WriterID)
 		}
@@ -658,7 +716,7 @@ func (kr *KeyRegistry) prefetchWriterPublicKeys(ctx context.Context, writerIDs [
 }
 
 // handleEntryEvent processes an incoming entry event from the watch.
-// It verifies the entry signature, fetches/verifies the data record and head in a single transaction.
+// It verifies the entry signature, fetches/verifies the data record and head.
 // The entry, data, and head are created together in a transaction, so they share the same WriterID.
 // Verifications are done in parallel for performance using verifyEntryAndDataParallel for entry+data
 // and a separate goroutine for head verification.
@@ -739,6 +797,12 @@ func (kr *KeyRegistry) handleEntryEvent(ctx context.Context, key, value []byte, 
 	// All verifications passed - update state and store verified entry/data/head
 	chainWatcher.updateVerifiedStateLocked(entry.Idx, newDigest, headModRev, head)
 	chainWatcher.storeVerifiedEntryLocked(&entry, dataRecord)
+
+	// Check if this is an ANCHOR_FLOWS entry and process anchored flows
+	if entry.OpType == "ANCHOR_FLOWS" {
+		logDev("Detected ANCHOR_FLOWS entry at idx=%d, processing anchored flows", entry.Idx)
+		chainWatcher.storeAnchoredFlows(dataRecord)
+	}
 
 	// Seal state for persistence
 	// if kr.PodId != "" && kr.FunctionId != "" {
@@ -886,6 +950,37 @@ func (w *HashChainWatcher) storeVerifiedEntryLocked(entry *HashChainEntry, dataR
 	if dataRecord != nil && entry != nil {
 		w.verifiedDataRecords[entry.DataKey] = dataRecord
 	}
+}
+
+// storeAnchoredFlows processes and stores anchored flows from a verified ANCHOR_FLOWS entry.
+// This is called after the entry and data record have been verified.
+func (w *HashChainWatcher) storeAnchoredFlows(dataRecord *HashChainDataRecord) {
+	logDev := mutil.LogWithPrefix("dev - storeAnchoredFlows")
+
+	// Parse the flow anchor payload
+	var payload FlowAnchorPayload
+	if err := json.Unmarshal(dataRecord.Payload, &payload); err != nil {
+		logDev("Failed to unmarshal flow anchor payload: %v", err)
+		return
+	}
+
+	if len(payload.AnchoredFlows) == 0 {
+		logDev("No flows in anchor payload")
+		return
+	}
+
+	// Store each anchored flow
+	w.anchoredFlowsMu.Lock()
+	defer w.anchoredFlowsMu.Unlock()
+
+	for i := range payload.AnchoredFlows {
+		flow := &payload.AnchoredFlows[i]
+		w.anchoredFlows[flow.FlowID] = flow
+		logDev("Stored anchored flow: %s (headIdx=%d)", flow.FlowID, flow.HeadIdx)
+	}
+
+	logDev("Successfully stored %d anchored flows from timestamp %s",
+		len(payload.AnchoredFlows), payload.Timestamp)
 }
 
 // processAllVerifiedKeys processes leader, member, or re-encryption keys for a verified data record.

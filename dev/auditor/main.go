@@ -39,23 +39,11 @@ import (
 )
 
 // ============================================================
-// Flow Anchor Payload Structures
+// Flow Anchor Payload Structures (imported from kregistry)
 // ============================================================
 
-// FlowAnchorPayload is the JSON payload stored as a global chain data record
-// when a batch of completed flows is anchored.
-type FlowAnchorPayload struct {
-	AnchoredFlows []FlowAnchorEntry `json:"anchored_flows"`
-	Timestamp     string            `json:"timestamp"`
-}
-
-// FlowAnchorEntry records the summary of a single verified and anchored flow.
-type FlowAnchorEntry struct {
-	FlowID     string   `json:"flow_id"`
-	HeadIdx    uint64   `json:"head_idx"`
-	HeadDigest []byte   `json:"head_digest"`
-	Functions  []string `json:"functions"`
-}
+// FlowAnchorPayload and FlowAnchorEntry are defined in pkg/kregistry/hash-chain-watcher.go
+// and reused here to avoid duplication.
 
 // VerifiedFlow holds the result of verifying a single per-flow chain.
 type VerifiedFlow struct {
@@ -620,7 +608,7 @@ func verifyGlobalChain(client *clientv3.Client, startIdx uint64, startDigest []b
 
 		// Extract anchored flows from ANCHOR_FLOWS operations
 		if entry.OpType == "ANCHOR_FLOWS" {
-			var payload FlowAnchorPayload
+			var payload kregistry.FlowAnchorPayload
 			if err := json.Unmarshal(dataRecord.Payload, &payload); err == nil {
 				for _, flow := range payload.AnchoredFlows {
 					discoveredFlows = append(discoveredFlows, flow.FlowID)
@@ -719,9 +707,9 @@ func tryAnchorFlowBatch(
 	}
 
 	// 2. Build anchor payload
-	anchorEntries := make([]FlowAnchorEntry, len(batch))
+	anchorEntries := make([]kregistry.FlowAnchorEntry, len(batch))
 	for i, vf := range batch {
-		anchorEntries[i] = FlowAnchorEntry{
+		anchorEntries[i] = kregistry.FlowAnchorEntry{
 			FlowID:     vf.FlowID,
 			HeadIdx:    vf.HeadIdx,
 			HeadDigest: vf.HeadDigest,
@@ -729,7 +717,7 @@ func tryAnchorFlowBatch(
 		}
 	}
 
-	payload := FlowAnchorPayload{
+	payload := kregistry.FlowAnchorPayload{
 		AnchoredFlows: anchorEntries,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
 	}
