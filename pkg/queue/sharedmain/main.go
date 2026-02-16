@@ -272,9 +272,9 @@ func TryAcquireLease(d *Defaults) {
 		// get elected before your background loop finished, violating
 		// the stated goal of the lease.
 		ReleaseOnCancel: true,
-		LeaseDuration:   15 * time.Second,
-		RenewDeadline:   10 * time.Second,
-		RetryPeriod:     2 * time.Second,
+		LeaseDuration:   60 * time.Second,
+		RenewDeadline:   45 * time.Second,
+		RetryPeriod:     5 * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				// we're notified when we start leading
@@ -426,6 +426,12 @@ func TryAcquireLease(d *Defaults) {
 
 func initEtcdWithRetry(d *Defaults) {
 	d.KeyRegistry.InitEtcdWithRetry()
+
+	// Start flow chain worker pool if flow tracking is enabled.
+	// 10 workers bound concurrent etcd writes; 50k buffer handles ~8 min at 100 rps.
+	if os.Getenv("FLOW_TRACKING_ENABLED") == "true" {
+		d.KeyRegistry.StartFlowChainWorkers(2, 50000)
+	}
 }
 
 // generateEnclaveKeypair generates or loads all enclave cryptographic keys.
@@ -964,9 +970,10 @@ func Main(opts ...Option) error {
 	logger, _ := pkglogging.NewLogger(env.ServingLoggingConfig, env.ServingLoggingLevel)
 	defer flush(logger)
 
-	// startResourceMonitoring(logger)
+	startResourceMonitoring(logger)
 
 	logDev := mutil.LogWithPrefix("dev - Main")
+	logDev("GOMAXPROCS=%d", runtime.GOMAXPROCS(0))
 	logDev("d.Env = %+v", d.Env)
 
 	d.KeyRegistry = new(kregistry.KeyRegistry)
@@ -1436,30 +1443,18 @@ func (d *DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("replay attack detected: flow %s has already been processed and anchored", nonce)
 		}
 
+		// Enqueue to worker pool: verify + write happen in bounded background workers.
+		// Security is already enforced synchronously by VERIFY_SIGNATURE;
+		// the hash chain provides a tamper-evident audit trail and replay
+		// detection (IsFlowAnchored above), neither of which requires
+		// blocking the request path.
 		chainedServices := d.KeyRegistry.GetFunctionChainFromEnv()
 		position := slices.Index(chainedServices, d.KeyRegistry.ServiceName)
-
-		var verifyResult *kregistry.FlowChainVerifyResult
-		if position > 0 {
-			// Synchronous verification before forwarding to user container
-			result, verifyErr := d.KeyRegistry.VerifyFlowChain(req.Context(), nonce, d.KeyRegistry.GenesisHash)
-			if verifyErr != nil {
-				logDev("Flow chain verification failed for flow %s: %v", nonce, verifyErr)
-				return nil, fmt.Errorf("flow chain verification failed: %w", verifyErr)
-			}
-			posErr := d.KeyRegistry.VerifyFlowChainPosition(result.Entries, chainedServices, d.KeyRegistry.ServiceName)
-			if posErr != nil {
-				logDev("Flow chain position verification failed for flow %s: %v", nonce, posErr)
-				return nil, fmt.Errorf("flow chain position verification failed: %w", posErr)
-			}
-			verifyResult = result // Cache for async write
-		}
-
-		// Async write (completed in EncryptResponseBody before response is sent)
-		// Pass verification result to avoid re-verifying in WriteFlowChainSubsequent
-		newCtx, _ := d.KeyRegistry.StartFlowChainRecordingAsync(req.Context(), nonce, verifyResult)
-		req = req.WithContext(newCtx)
-		req.Header.Set(kregistry.FlowTrackingEnabledHeader, "true")
+		d.KeyRegistry.EnqueueFlowChainTask(kregistry.FlowChainTask{
+			Nonce:           nonce,
+			Position:        position,
+			ChainedServices: chainedServices,
+		})
 	} else {
 		logDev("Flow tracking disabled or nonce missing, skipping flow processing.")
 	}

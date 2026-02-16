@@ -63,17 +63,8 @@ type FlowChainVerifyResult struct {
 	DataRecords    map[string]*FlowDataRecord // keyed by funcName
 }
 
-// FlowChainResult holds the result of an async flow chain recording.
-type FlowChainResult struct {
-	FlowIdx uint64
-	Err     error
-}
-
-// flowChainResultContextKey is the context key for storing the flow chain result channel.
-type flowChainResultContextKey struct{}
-
-// flowChainVerifyResultContextKey is the context key for storing the cached verification result.
-type flowChainVerifyResultContextKey struct{}
+// FlowChainVerifyResultContextKey is the context key for storing the cached verification result.
+type FlowChainVerifyResultContextKey struct{}
 
 // ============================================================
 // Key Formatting Functions
@@ -348,6 +339,9 @@ func (kr *KeyRegistry) VerifyFlowChain(ctx context.Context, flowID string, genes
 		}
 	}
 
+	logDev("Fetched flow chain data: flowID=%s, headFound=%t, entries=%d, dataRecords=%d",
+		flowID, headFound, len(entries), len(dataRecords))
+
 	if !headFound {
 		return nil, fmt.Errorf("flow chain head not found for flow %s", flowID)
 	}
@@ -607,7 +601,7 @@ func (kr *KeyRegistry) RecordFlowOnChain(baseCtx context.Context, flowID string)
 
 	genesisHash := kr.GenesisHash
 
-	maxAttempts := 20
+	maxAttempts := 5
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
 
@@ -665,92 +659,16 @@ func addFlowJitter(d time.Duration) time.Duration {
 // Async Wrapper
 // ============================================================
 
-// StartFlowChainRecordingAsync starts recording flow processing on the per-flow chain
-// in a background goroutine. Returns a context with the result channel embedded,
-// and the channel itself.
-// If verifyResult is provided (non-nil), it will be cached in the context to avoid
-// re-verification in WriteFlowChainSubsequent().
-func (kr *KeyRegistry) StartFlowChainRecordingAsync(ctx context.Context, flowID string, verifyResult *FlowChainVerifyResult) (context.Context, <-chan FlowChainResult) {
-	logDev := mutil.LogWithPrefix("dev - StartFlowChainRecordingAsync")
-
-	resultChan := make(chan FlowChainResult, 1)
-
-	newCtx := context.WithValue(ctx, flowChainResultContextKey{}, resultChan)
-
-	// Cache the verification result if provided
-	if verifyResult != nil {
-		logDev("Caching verification result for flow %s (idx=%d)", flowID, verifyResult.VerifiedIdx)
-		newCtx = context.WithValue(newCtx, flowChainVerifyResultContextKey{}, verifyResult)
-	}
-
-	go func() {
-		defer close(resultChan)
-
-		logDev("Starting async flow chain recording: flowID=%s", flowID)
-		// Pass newCtx to preserve cached verification result
-		idx, err := kr.RecordFlowOnChain(newCtx, flowID)
-
-		result := FlowChainResult{
-			FlowIdx: idx,
-			Err:     err,
-		}
-
-		logDev("Async flow chain recording complete: flowID=%s, idx=%d, err=%v", flowID, idx, err)
-		resultChan <- result
-	}()
-
-	return newCtx, resultChan
-}
-
-// GetFlowChainResultFromContext retrieves the flow chain result channel from the context.
-func GetFlowChainResultFromContext(ctx context.Context) <-chan FlowChainResult {
-	if ctx == nil {
-		return nil
-	}
-	ch, ok := ctx.Value(flowChainResultContextKey{}).(chan FlowChainResult)
-	if !ok {
-		return nil
-	}
-	return ch
-}
-
 // GetFlowChainVerifyResultFromContext retrieves the cached verification result from the context.
 func GetFlowChainVerifyResultFromContext(ctx context.Context) *FlowChainVerifyResult {
 	if ctx == nil {
 		return nil
 	}
-	result, ok := ctx.Value(flowChainVerifyResultContextKey{}).(*FlowChainVerifyResult)
+	result, ok := ctx.Value(FlowChainVerifyResultContextKey{}).(*FlowChainVerifyResult)
 	if !ok {
 		return nil
 	}
 	return result
-}
-
-// WaitForFlowChainResult waits for the async flow chain recording to complete.
-func WaitForFlowChainResult(ctx context.Context, timeout time.Duration) (uint64, error) {
-	logDev := mutil.LogWithPrefix("dev - WaitForFlowChainResult")
-
-	ch := GetFlowChainResultFromContext(ctx)
-	if ch == nil {
-		logDev("No flow chain result channel in context, flow tracking not enabled")
-		return 0, nil
-	}
-
-	select {
-	case result, ok := <-ch:
-		if !ok {
-			logDev("Flow chain result channel closed without result")
-			return 0, fmt.Errorf("flow chain result channel closed unexpectedly")
-		}
-		logDev("Got flow chain result: idx=%d, err=%v", result.FlowIdx, result.Err)
-		return result.FlowIdx, result.Err
-	case <-time.After(timeout):
-		logDev("Timeout waiting for flow chain result after %v", timeout)
-		return 0, fmt.Errorf("timeout waiting for flow chain recording to complete")
-	case <-ctx.Done():
-		logDev("Context cancelled while waiting for flow chain result")
-		return 0, ctx.Err()
-	}
 }
 
 // GetFunctionChainFromEnvStatic returns the function chain from the FUNCTION_CHAIN env var.
@@ -761,4 +679,107 @@ func GetFunctionChainFromEnvStatic() []string {
 		return []string{}
 	}
 	return strings.Split(functionChain, "/")
+}
+
+// ============================================================
+// Flow Chain Worker Pool
+// ============================================================
+
+// FlowChainTask represents a unit of work for the flow chain worker pool.
+type FlowChainTask struct {
+	Nonce           string
+	Position        int
+	ChainedServices []string
+	Attempts        int // how many times this task has been dequeued
+}
+
+const maxFlowChainAttempts = 20
+
+// StartFlowChainWorkers launches n worker goroutines that process flow chain
+// tasks (verify + write) from a shared buffered channel. This bounds the number
+// of concurrent etcd operations and prevents resource contention under high load.
+func (kr *KeyRegistry) StartFlowChainWorkers(n int, bufferSize int) {
+	kr.flowChainTasks = make(chan FlowChainTask, bufferSize)
+	logDev := mutil.LogWithPrefix("dev - FlowChainWorkerPool")
+	for i := 0; i < n; i++ {
+		go func(workerID int) {
+			for task := range kr.flowChainTasks {
+				kr.processFlowChainTask(workerID, task)
+				time.Sleep(100 * time.Millisecond)
+			}
+		}(i)
+	}
+	logDev("Started %d flow chain workers with buffer size %d", n, bufferSize)
+}
+
+// EnqueueFlowChainTask sends a task to the worker pool. Returns false if the
+// channel buffer is full (non-blocking to avoid stalling the request path).
+func (kr *KeyRegistry) EnqueueFlowChainTask(task FlowChainTask) bool {
+	logDev := mutil.LogWithPrefix("dev - FlowChainEnqueue")
+	select {
+	case kr.flowChainTasks <- task:
+		queued := len(kr.flowChainTasks)
+		capacity := cap(kr.flowChainTasks)
+		logDev("Enqueued flow %s (position %d) — buffer %d/%d", task.Nonce, task.Position, queued, capacity)
+		return true
+	default:
+		queued := len(kr.flowChainTasks)
+		capacity := cap(kr.flowChainTasks)
+		logDev("BUFFER FULL — dropped flow %s (position %d) — buffer %d/%d", task.Nonce, task.Position, queued, capacity)
+		return false
+	}
+}
+
+func (kr *KeyRegistry) processFlowChainTask(workerID int, task FlowChainTask) {
+	logBg := mutil.LogWithPrefix("dev - FlowChainWorker")
+	bgCtx := context.Background()
+	task.Attempts++
+
+	logBg("Worker %d: processing flow %s (position %d, attempt %d/%d)",
+		workerID, task.Nonce, task.Position, task.Attempts, maxFlowChainAttempts)
+
+	if task.Position > 0 {
+		result, verifyErr := kr.VerifyFlowChain(bgCtx, task.Nonce, kr.GenesisHash)
+		if verifyErr != nil {
+			logBg("Worker %d: verification failed for flow %s (attempt %d): %v",
+				workerID, task.Nonce, task.Attempts, verifyErr)
+			kr.reEnqueueFlowChainTask(workerID, task)
+			return
+		}
+		posErr := kr.VerifyFlowChainPosition(result.Entries, task.ChainedServices, kr.ServiceName)
+		if posErr != nil {
+			logBg("Worker %d: position verification failed for flow %s (attempt %d): %v",
+				workerID, task.Nonce, task.Attempts, posErr)
+			kr.reEnqueueFlowChainTask(workerID, task)
+			return
+		}
+		bgCtx = context.WithValue(bgCtx, FlowChainVerifyResultContextKey{}, result)
+	}
+
+	idx, err := kr.RecordFlowOnChain(bgCtx, task.Nonce)
+	if err != nil {
+		logBg("Worker %d: recording failed for flow %s (attempt %d): %v",
+			workerID, task.Nonce, task.Attempts, err)
+		kr.reEnqueueFlowChainTask(workerID, task)
+		return
+	}
+	logBg("Worker %d: recorded flow %s at index %d (attempt %d) — buffer %d/%d",
+		workerID, task.Nonce, idx, task.Attempts, len(kr.flowChainTasks), cap(kr.flowChainTasks))
+}
+
+func (kr *KeyRegistry) reEnqueueFlowChainTask(workerID int, task FlowChainTask) {
+	logBg := mutil.LogWithPrefix("dev - FlowChainWorker")
+	if task.Attempts >= maxFlowChainAttempts {
+		logBg("Worker %d: GIVING UP on flow %s after %d attempts, skipping write to preserve ordering",
+			workerID, task.Nonce, task.Attempts)
+		return
+	}
+	select {
+	case kr.flowChainTasks <- task:
+		logBg("Worker %d: re-enqueued flow %s (attempt %d) — buffer %d/%d",
+			workerID, task.Nonce, task.Attempts, len(kr.flowChainTasks), cap(kr.flowChainTasks))
+	default:
+		logBg("Worker %d: BUFFER FULL — dropped re-enqueue for flow %s (attempt %d) — buffer %d/%d",
+			workerID, task.Nonce, task.Attempts, len(kr.flowChainTasks), cap(kr.flowChainTasks))
+	}
 }

@@ -139,6 +139,10 @@ type KeyRegistry struct {
 	// GenesisHash is the decoded genesis hash for flow chain operations
 	GenesisHash  []byte
 	ClientPubKey ed25519.PublicKey
+
+	// flowChainTasks is the channel for the flow chain worker pool.
+	// Workers dequeue tasks and process verify + write operations.
+	flowChainTasks chan FlowChainTask
 }
 
 func (kr *KeyRegistry) StoreAggSignatureAndChain(nonce, functionChain, aggSignature string) {
@@ -1266,24 +1270,6 @@ func (kr *KeyRegistry) EncryptResponseBody(resp *http.Response) error {
 	sigHex := hex.EncodeToString(sigBytes)
 	resp.Header.Set("Ce-Aggsignature", sigHex)
 	resp.Header.Set("Content-Length", fmt.Sprint(len(encryptedBytes)))
-
-	// If flow tracking was enabled, wait for the async recording to complete
-	// and pass the chain index back in response header
-	if resp.Request != nil {
-		flowTrackingEnabled := resp.Request.Header.Get(FlowTrackingEnabledHeader)
-		if flowTrackingEnabled == "true" {
-			// Wait for the async flow chain recording to complete (timeout: 30 seconds)
-			chainIdx, err := WaitForFlowChainResult(resp.Request.Context(), 30*time.Second)
-			if err != nil {
-				logDev("Error waiting for flow chain result: %v", err)
-				return fmt.Errorf("flow chain recording failed: %w", err)
-			}
-			resp.Header.Set("Ce-Flowchainindex", fmt.Sprintf("%d", chainIdx))
-			logDev("Set Ce-Flowchainindex: %d", chainIdx)
-		} else {
-			logDev("Flow tracking not enabled, not setting Ce-Flowchainindex header")
-		}
-	}
 
 	return nil
 }
