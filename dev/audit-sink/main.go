@@ -43,6 +43,7 @@ type CompletedRecord struct {
 type batcher struct {
 	mu        sync.Mutex
 	buffer    []CompletedRecord
+	seen      map[string]struct{} // dedup by nonce
 	client    *clientv3.Client
 	batchSize int
 	flushCh   chan struct{} // signals that buffer may be ready to flush
@@ -52,13 +53,20 @@ func newBatcher(client *clientv3.Client, batchSize int) *batcher {
 	return &batcher{
 		client:    client,
 		batchSize: batchSize,
+		seen:      make(map[string]struct{}),
 		flushCh:   make(chan struct{}, 1),
 	}
 }
 
 // add appends a record to the buffer and signals the flusher if the batch is full.
+// Duplicate nonces (from at-least-once CloudEvent delivery) are dropped.
 func (b *batcher) add(rec CompletedRecord) {
 	b.mu.Lock()
+	if _, dup := b.seen[rec.Nonce]; dup {
+		b.mu.Unlock()
+		return
+	}
+	b.seen[rec.Nonce] = struct{}{}
 	b.buffer = append(b.buffer, rec)
 	shouldSignal := len(b.buffer) >= b.batchSize
 	b.mu.Unlock()
@@ -85,6 +93,7 @@ func (b *batcher) drain() []CompletedRecord {
 	batch := make([]CompletedRecord, n)
 	copy(batch, b.buffer[:n])
 	b.buffer = b.buffer[n:]
+
 	return batch
 }
 
@@ -190,8 +199,6 @@ func main() {
 		fmt.Fprint(w, "ok")
 	})
 
-	// TODO: verify if this going to work
-	// the messages are sent via cloud events
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -202,8 +209,13 @@ func main() {
 		aggSig := r.Header.Get("Ce-Aggsignature")
 		funcChain := r.Header.Get("Ce-Functionchain")
 
+		// CloudEvents subscribers must always return 2xx. Returning 4xx/5xx
+		// causes the InMemoryChannel to retry delivery, blocking the
+		// synchronous Sequence pipeline and hanging the broker-ingress.
 		if nonce == "" {
-			http.Error(w, "missing Ce-Nonce header", http.StatusBadRequest)
+			log.Printf("[handler] skipping event without Ce-Nonce (type=%s source=%s)",
+				r.Header.Get("Ce-Type"), r.Header.Get("Ce-Source"))
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
@@ -216,8 +228,12 @@ func main() {
 
 		b.add(rec)
 
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "buffered nonce=%s\n", nonce)
+		// Return 204 No Content — signals the broker that delivery succeeded
+		// with no reply event. A non-empty body with 200 could be misinterpreted
+		// as a reply CloudEvent by some channel implementations.
+		w.WriteHeader(http.StatusNoContent)
+
+		log.Printf("[handler] received event: nonce=%s aggSig=%s funcChain=%s", nonce, aggSig, funcChain)
 	})
 
 	log.Printf("[main] listening on :%s", port)
