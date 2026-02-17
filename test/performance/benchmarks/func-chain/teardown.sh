@@ -59,6 +59,10 @@ else
   teardown_strategy "$STRATEGY"
 fi
 
+# Delete audit-sink if present
+echo "Deleting audit-sink resources..."
+kubectl delete -f "$REPO_ROOT/dev/yaml/audit-sink.yaml" --ignore-not-found=true
+
 # Delete common resources (broker, triggers, autoscaler config)
 echo "Deleting common resources from: $COMMON_DIR"
 kubectl delete -f "$COMMON_DIR" --ignore-not-found=true

@@ -3,6 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
 STRATEGY="${1:-both}"
 ns=default
@@ -92,6 +93,14 @@ fi
 # Wait for all services in the namespace to be ready
 echo "Waiting for all services to be ready..."
 kubectl wait --for=condition=Ready ksvc --all -n "$ns" --timeout=300s
+
+# Deploy audit-sink for strategies that use BGLS signature verification
+if [[ "$STRATEGY" == "both-hash-chain-sig" ]]; then
+  echo "Deploying audit-sink for BGLS signature auditing..."
+  ko apply --sbom=none -Bf "$REPO_ROOT/dev/yaml/audit-sink.yaml"
+  echo "Waiting for audit-sink to be ready..."
+  kubectl wait --for=condition=available deployment/audit-sink -n "$ns" --timeout=120s
+fi
 
 echo "=========================================="
 echo "Services deployed successfully!"

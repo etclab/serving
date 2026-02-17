@@ -1,0 +1,16 @@
+# Trigger that routes completed chain events to the audit-sink service
+# for BGLS signature verification by the external auditor-sig
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: auditor-trigger
+spec:
+  broker: broker
+  filter:
+    attributes:
+      type: samples.http.mod3
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: audit-sink

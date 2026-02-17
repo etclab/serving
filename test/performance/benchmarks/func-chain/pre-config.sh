@@ -136,7 +136,10 @@ case "$STRATEGY" in
     ATTACH_SIGNATURE="true"
     VERIFY_SIGNATURE="false"
     DISABLE_LOGGING="false"
-    FLOW_TRACKING_ENABLED="true"
+    # flow tracking is disabled completely for functions, instead the auditor
+    # will verify the chain entries and log a batch of spent flow_ids
+    # FLOW_TRACKING_ENABLED="true"
+    FLOW_TRACKING_ENABLED="false"
     ;;
   *)
     echo "Unknown strategy: $STRATEGY"

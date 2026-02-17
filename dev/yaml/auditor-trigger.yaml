@@ -1,0 +1,14 @@
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: auditor-trigger
+spec:
+  broker: broker
+  filter:
+    attributes:
+      type: samples.http.mod3
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: audit-sink

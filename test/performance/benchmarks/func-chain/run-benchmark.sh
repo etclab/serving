@@ -187,8 +187,28 @@ function run_benchmark_for_strategy() {
     sleep 10
   fi
 
+  # Start auditor-sig in background for both-hash-chain-sig strategy
+  local auditor_pid=""
+  if [[ "$strategy" == "both-hash-chain-sig" ]]; then
+    echo "Starting auditor-sig in background..."
+    "$REPO_ROOT/dev/auditor-sig/run.sh" > "${strategy_dir}/auditor-sig.log" 2>&1 &
+    auditor_pid=$!
+    echo "auditor-sig started (PID: $auditor_pid)"
+    sleep 5  # Let auditor do initial global chain verification and cache BGLS keys
+  fi
+
   # Run the benchmark job
   run_job func-chain-job "${SCRIPT_DIR}/func-chain-job.yaml" "$RATE" "$strategy" "$strategy_dir"
+
+  # Stop auditor-sig after benchmark completes
+  if [[ -n "$auditor_pid" ]]; then
+    echo "Waiting for auditor-sig to process remaining records..."
+    sleep 10  # Give auditor time to process the last batch
+    echo "Stopping auditor-sig (PID: $auditor_pid)..."
+    kill "$auditor_pid" 2>/dev/null || true
+    wait "$auditor_pid" 2>/dev/null || true
+    echo "auditor-sig stopped. Logs at: ${strategy_dir}/auditor-sig.log"
+  fi
 
   # Extract traces from Zipkin
   if [[ "${SKIP_TRACES:-false}" != "true" ]]; then
