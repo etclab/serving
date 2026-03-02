@@ -327,51 +327,66 @@ func extractAndCacheBGLSKeys(podID string, attestedKey *kregistry.AttestedPublic
 // Completed Flow Scanner
 // ============================================================
 
-// scanCompletedFlows polls etcd for completed flow records written by audit-sink. ok
-// Uses WithMinModRev for efficient incremental scanning.
+// scanCompletedFlows polls etcd for completed flow records written by audit-sink.
+// Uses WithMinModRev for efficient incremental scanning and paginates results
+// with WithLimit/WithFromKey to avoid hitting etcd response size limits.
 func scanCompletedFlows(client *clientv3.Client, verifiedState *VerifiedState) ([]CompletedFlowRecord, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	const pageSize int64 = 128
 
 	lastScannedRev := verifiedState.GetLastScannedRev()
-
-	opts := []clientv3.OpOption{
-		clientv3.WithPrefix(),
-	}
-	if lastScannedRev > 0 {
-		opts = append(opts, clientv3.WithMinModRev(lastScannedRev+1))
-	}
-
-	resp, err := client.Get(ctx, completedPrefix, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list completed flows: %w", err)
-	}
 
 	var maxRevSeen int64
 	var records []CompletedFlowRecord
 
-	for _, kv := range resp.Kvs {
-		if kv.ModRevision > maxRevSeen {
-			maxRevSeen = kv.ModRevision
+	startKey := completedPrefix
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		opts := []clientv3.OpOption{
+			clientv3.WithRange(clientv3.GetPrefixRangeEnd(completedPrefix)),
+			clientv3.WithLimit(pageSize),
+		}
+		if lastScannedRev > 0 {
+			opts = append(opts, clientv3.WithMinModRev(lastScannedRev+1))
 		}
 
-		// Extract nonce from key
-		nonce := strings.TrimPrefix(string(kv.Key), completedPrefix)
-		if nonce == "" {
-			continue
+		resp, err := client.Get(ctx, startKey, opts...)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list completed flows: %w", err)
 		}
 
-		if verifiedState.IsAnchored(nonce) {
-			continue
+		for _, kv := range resp.Kvs {
+			if kv.ModRevision > maxRevSeen {
+				maxRevSeen = kv.ModRevision
+			}
+
+			nonce := strings.TrimPrefix(string(kv.Key), completedPrefix)
+			if nonce == "" {
+				continue
+			}
+
+			if verifiedState.IsAnchored(nonce) {
+				continue
+			}
+
+			var rec CompletedFlowRecord
+			if err := json.Unmarshal(kv.Value, &rec); err != nil {
+				log.Printf("[scan] failed to unmarshal completed record for %s: %v", nonce, err)
+				continue
+			}
+
+			records = append(records, rec)
 		}
 
-		var rec CompletedFlowRecord
-		if err := json.Unmarshal(kv.Value, &rec); err != nil {
-			log.Printf("[scan] failed to unmarshal completed record for %s: %v", nonce, err)
-			continue
+		// If we got fewer than pageSize results, we've reached the end.
+		if !resp.More {
+			break
 		}
 
-		records = append(records, rec)
+		// Continue from the key after the last one returned.
+		lastKey := resp.Kvs[len(resp.Kvs)-1].Key
+		startKey = string(append(lastKey, 0))
 	}
 
 	if maxRevSeen > 0 {
