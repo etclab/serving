@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auditor-sig
+  namespace: default
+  labels:
+    app: auditor-sig
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auditor-sig
+  template:
+    metadata:
+      labels:
+        app: auditor-sig
+    spec:
+      containers:
+        - name: auditor-sig
+          image: ${AUDITOR_SIG_IMAGE}
+          args:
+            - "-etcd-endpoints"
+            - "etcd.knative-serving.svc.cluster.local:2379"
+            - "-keys-dir"
+            - "/etc/keys"
+            - "-poll-interval"
+            - "${POLL_INTERVAL}"
+            - "-batch-size"
+            - "${BATCH_SIZE}"
+            - "-batch-timeout"
+            - "${BATCH_TIMEOUT}"
+            - "-writer-id"
+            - "auditor"
+          volumeMounts:
+            - name: client-keys
+              mountPath: /etc/keys
+              readOnly: true
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: client-keys
+          secret:
+            secretName: auditor-sig-keys
