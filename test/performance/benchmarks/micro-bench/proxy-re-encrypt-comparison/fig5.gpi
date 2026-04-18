@@ -1,0 +1,44 @@
+#!/usr/bin/env gnuplot
+
+load 'style.gpi'
+
+# Override the eps terminal from style.gpi with pdfcairo so we emit a PDF.
+set terminal pdfcairo enhanced color font "Helvetica, 12" size 7in, 4.2in
+set output "fig5.pdf"
+
+set grid ytics
+set tics nomirror
+
+set style data histogram 
+set style histogram gap 5 clustered 
+set style fill solid 1 border -1
+
+set ylabel "Time (ms) (log scale)"
+set xrange[-1:]
+
+set xtics font "Helvetica,11"
+
+#set xlabel "Operation" offset 0, -1.5
+set xlabel "Operation" 
+set logscale y
+set ytics ( \
+        "0.001"   0.001, \
+        "0.01"   0.01, \
+        "0.1"   0.1, \
+        "1"     1, \
+        "10"   10, \
+        "100"  100, \
+        "1000"  1000, \
+        )
+set key font ",12" outside top horizontal maxrows 2 Left reverse autotitle columnheader
+
+# - convert nanoseconds to milliseconds (1,000,000 ns = 1 ms)
+# - the schemes that are not proxy-rencryption schemes (ElGamal and RSA) have
+#   a fill pattern
+plot "fig5.dat" \
+        using ($2/1e6):xtic(1) linestyle 1 fill pattern 4, \
+    ""  using ($3/1e6)         linestyle 2 fill pattern 5, \
+    ""  using ($4/1e6)         linestyle 3, \
+    ""  using ($5/1e6)         linestyle 4, \
+    ""  using ($6/1e6)         linestyle 5, \
+    ""  using ($7/1e6)         linestyle 6

@@ -1,0 +1,248 @@
+=== RUN   TestSign
+--- PASS: TestSign (0.01s)
+=== RUN   TestVerifyInvalid
+--- PASS: TestVerifyInvalid (0.01s)
+=== RUN   TestManySign
+--- PASS: TestManySign (0.01s)
+=== RUN   TestAggregate
+--- PASS: TestAggregate (0.01s)
+=== RUN   TestMessagesNotUnique
+--- PASS: TestMessagesNotUnique (0.01s)
+=== RUN   ExampleSign
+--- PASS: ExampleSign (0.01s)
+=== RUN   ExampleAggregate
+--- PASS: ExampleAggregate (0.01s)
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/aggsig/bgls03
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen
+BenchmarkKeyGen-56                  1171           1022848 ns/op             712 B/op         14 allocs/op
+BenchmarkSign
+BenchmarkSign/numPrevSigs:0
+BenchmarkSign/numPrevSigs:0-56              1994            571920 ns/op            1448 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:1
+BenchmarkSign/numPrevSigs:1-56              2144            551268 ns/op            1448 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:2
+BenchmarkSign/numPrevSigs:2-56              2350            520387 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:4
+BenchmarkSign/numPrevSigs:4-56              2210            533525 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:8
+BenchmarkSign/numPrevSigs:8-56              2276            524458 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:16
+BenchmarkSign/numPrevSigs:16-56             2214            533029 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:32
+BenchmarkSign/numPrevSigs:32-56             2101            512887 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:64
+BenchmarkSign/numPrevSigs:64-56             2256            528004 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:128
+BenchmarkSign/numPrevSigs:128-56            2209            532525 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:256
+BenchmarkSign/numPrevSigs:256-56            2360            532664 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:512
+BenchmarkSign/numPrevSigs:512-56            2143            547690 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:1024
+BenchmarkSign/numPrevSigs:1024-56           2258            523922 ns/op            1447 B/op         29 allocs/op
+BenchmarkAggregate
+BenchmarkAggregate/numSigs:1
+BenchmarkAggregate/numSigs:1-56           540790              2403 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:2
+BenchmarkAggregate/numSigs:2-56           334557              3688 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:4
+BenchmarkAggregate/numSigs:4-56           177772              6575 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:8
+BenchmarkAggregate/numSigs:8-56           109629             11186 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:16
+BenchmarkAggregate/numSigs:16-56           49099             22167 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:32
+BenchmarkAggregate/numSigs:32-56           27696             42101 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:64
+BenchmarkAggregate/numSigs:64-56           14566             82248 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:128
+BenchmarkAggregate/numSigs:128-56           7203            165625 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:256
+BenchmarkAggregate/numSigs:256-56           3594            332715 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:512
+BenchmarkAggregate/numSigs:512-56           1717            685507 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:1024
+BenchmarkAggregate/numSigs:1024-56           880           1352210 ns/op             152 B/op          2 allocs/op
+BenchmarkVerify
+BenchmarkVerify/numSigs:1
+BenchmarkVerify/numSigs:1-56                 278           4302845 ns/op            2582 B/op         30 allocs/op
+BenchmarkVerify/numSigs:2
+BenchmarkVerify/numSigs:2-56                 182           6552194 ns/op            4574 B/op         59 allocs/op
+BenchmarkVerify/numSigs:4
+BenchmarkVerify/numSigs:4-56                  98          11454542 ns/op            8566 B/op        117 allocs/op
+BenchmarkVerify/numSigs:8
+BenchmarkVerify/numSigs:8-56                  54          21026172 ns/op           16539 B/op        233 allocs/op
+BenchmarkVerify/numSigs:16
+BenchmarkVerify/numSigs:16-56                 31          37924677 ns/op           33402 B/op        470 allocs/op
+BenchmarkVerify/numSigs:32
+BenchmarkVerify/numSigs:32-56                 14          77526099 ns/op           66534 B/op        936 allocs/op
+BenchmarkVerify/numSigs:64
+BenchmarkVerify/numSigs:64-56                  7         152514282 ns/op          132709 B/op       1866 allocs/op
+BenchmarkVerify/numSigs:128
+BenchmarkVerify/numSigs:128-56                 4         305738321 ns/op          264950 B/op       3725 allocs/op
+BenchmarkVerify/numSigs:256
+BenchmarkVerify/numSigs:256-56                 2         582635718 ns/op          529536 B/op       7441 allocs/op
+BenchmarkVerify/numSigs:512
+BenchmarkVerify/numSigs:512-56                 1        1158103168 ns/op         1058104 B/op      14870 allocs/op
+BenchmarkVerify/numSigs:1024
+BenchmarkVerify/numSigs:1024-56                1        2326177905 ns/op         2106760 B/op      29723 allocs/op
+PASS
+ok      github.com/etclab/ncircl/aggsig/bgls03  54.154s
+
+
+=== RUN   TestSign
+--- PASS: TestSign (0.01s)
+=== RUN   TestMultiSign
+--- PASS: TestMultiSign (0.01s)
+=== RUN   TestAggregate
+--- PASS: TestAggregate (0.01s)
+=== RUN   ExampleSign
+--- PASS: ExampleSign (0.01s)
+=== RUN   ExampleAggregate
+--- PASS: ExampleAggregate (0.01s)
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/multisig/b03
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen
+BenchmarkKeyGen-56                  1216            992997 ns/op             712 B/op         14 allocs/op
+BenchmarkSign
+BenchmarkSign/numPrevSigs:0
+BenchmarkSign/numPrevSigs:0-56              2058            550764 ns/op            1450 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:1
+BenchmarkSign/numPrevSigs:1-56              2358            546160 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:2
+BenchmarkSign/numPrevSigs:2-56              2233            529459 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:4
+BenchmarkSign/numPrevSigs:4-56              2355            519505 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:8
+BenchmarkSign/numPrevSigs:8-56              2184            533991 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:16
+BenchmarkSign/numPrevSigs:16-56             2365            519909 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:32
+BenchmarkSign/numPrevSigs:32-56             2365            520015 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:64
+BenchmarkSign/numPrevSigs:64-56             2252            547418 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:128
+BenchmarkSign/numPrevSigs:128-56            2017            529952 ns/op            1448 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:256
+BenchmarkSign/numPrevSigs:256-56            2355            525056 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:512
+BenchmarkSign/numPrevSigs:512-56            2218            532269 ns/op            1447 B/op         29 allocs/op
+BenchmarkSign/numPrevSigs:1024
+BenchmarkSign/numPrevSigs:1024-56           2361            522502 ns/op            1447 B/op         29 allocs/op
+BenchmarkAggregate
+BenchmarkAggregate/numSigs:1
+BenchmarkAggregate/numSigs:1-56           472219              2425 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:2
+BenchmarkAggregate/numSigs:2-56           276488              3715 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:4
+BenchmarkAggregate/numSigs:4-56           192550              6320 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:8
+BenchmarkAggregate/numSigs:8-56           115620             11062 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:16
+BenchmarkAggregate/numSigs:16-56           49227             22054 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:32
+BenchmarkAggregate/numSigs:32-56           28890             42498 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:64
+BenchmarkAggregate/numSigs:64-56           13338             85337 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:128
+BenchmarkAggregate/numSigs:128-56           6765            169432 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:256
+BenchmarkAggregate/numSigs:256-56           3638            327381 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:512
+BenchmarkAggregate/numSigs:512-56           1778            667861 ns/op             152 B/op          2 allocs/op
+BenchmarkAggregate/numSigs:1024
+BenchmarkAggregate/numSigs:1024-56           915           1307174 ns/op             152 B/op          2 allocs/op
+BenchmarkVerify
+BenchmarkVerify/numSigs:1
+BenchmarkVerify/numSigs:1-56                 254           4472070 ns/op            2441 B/op         29 allocs/op
+BenchmarkVerify/numSigs:2
+BenchmarkVerify/numSigs:2-56                 255           4454691 ns/op            2440 B/op         29 allocs/op
+BenchmarkVerify/numSigs:4
+BenchmarkVerify/numSigs:4-56                 252           4503597 ns/op            2441 B/op         29 allocs/op
+BenchmarkVerify/numSigs:8
+BenchmarkVerify/numSigs:8-56                 270           4376554 ns/op            2439 B/op         29 allocs/op
+BenchmarkVerify/numSigs:16
+BenchmarkVerify/numSigs:16-56                252           4525829 ns/op            2441 B/op         29 allocs/op
+BenchmarkVerify/numSigs:32
+BenchmarkVerify/numSigs:32-56                266           4456895 ns/op            2439 B/op         29 allocs/op
+BenchmarkVerify/numSigs:64
+BenchmarkVerify/numSigs:64-56                241           4757535 ns/op            2443 B/op         29 allocs/op
+BenchmarkVerify/numSigs:128
+BenchmarkVerify/numSigs:128-56               225           5036379 ns/op            2445 B/op         29 allocs/op
+BenchmarkVerify/numSigs:256
+BenchmarkVerify/numSigs:256-56               222           5377647 ns/op            2445 B/op         29 allocs/op
+BenchmarkVerify/numSigs:512
+BenchmarkVerify/numSigs:512-56               169           6686215 ns/op            2457 B/op         29 allocs/op
+BenchmarkVerify/numSigs:1024
+BenchmarkVerify/numSigs:1024-56              127           8836591 ns/op            2474 B/op         29 allocs/op
+PASS
+ok      github.com/etclab/ncircl/multisig/b03   52.937s
+
+
+=== RUN   TestSingleSign
+--- PASS: TestSingleSign (0.02s)
+=== RUN   TestMultiSign
+--- PASS: TestMultiSign (0.05s)
+=== RUN   Example
+--- PASS: Example (0.05s)
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/multisig/bgoy07
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen
+BenchmarkKeyGen-56           615           1698819 ns/op            1848 B/op         38 allocs/op
+BenchmarkSign
+BenchmarkSign/numPrevSigs:0
+BenchmarkSign/numPrevSigs:0-56               424           2824481 ns/op            1748 B/op         40 allocs/op
+BenchmarkSign/numPrevSigs:1
+BenchmarkSign/numPrevSigs:1-56                79          14444027 ns/op            9115 B/op         91 allocs/op
+BenchmarkSign/numPrevSigs:2
+BenchmarkSign/numPrevSigs:2-56                76          14989195 ns/op           12254 B/op        110 allocs/op
+BenchmarkSign/numPrevSigs:4
+BenchmarkSign/numPrevSigs:4-56                68          16854739 ns/op           18540 B/op        148 allocs/op
+BenchmarkSign/numPrevSigs:8
+BenchmarkSign/numPrevSigs:8-56                56          20176050 ns/op           31111 B/op        224 allocs/op
+BenchmarkSign/numPrevSigs:16
+BenchmarkSign/numPrevSigs:16-56               44          27008635 ns/op           57822 B/op        381 allocs/op
+BenchmarkSign/numPrevSigs:32
+BenchmarkSign/numPrevSigs:32-56               31          38867022 ns/op          109976 B/op        687 allocs/op
+BenchmarkSign/numPrevSigs:64
+BenchmarkSign/numPrevSigs:64-56               18          63627340 ns/op          214216 B/op       1297 allocs/op
+BenchmarkSign/numPrevSigs:128
+BenchmarkSign/numPrevSigs:128-56               9         119850391 ns/op          422410 B/op       2516 allocs/op
+BenchmarkSign/numPrevSigs:256
+BenchmarkSign/numPrevSigs:256-56               5         209855810 ns/op          838942 B/op       4951 allocs/op
+BenchmarkSign/numPrevSigs:512
+BenchmarkSign/numPrevSigs:512-56               3         429727336 ns/op         1674112 B/op       9820 allocs/op
+BenchmarkSign/numPrevSigs:1024
+BenchmarkSign/numPrevSigs:1024-56              2         835737770 ns/op         3334444 B/op      19555 allocs/op
+BenchmarkVerify
+BenchmarkVerify/numSigs:1
+BenchmarkVerify/numSigs:1-56                 103          11198284 ns/op            7322 B/op         50 allocs/op
+BenchmarkVerify/numSigs:2
+BenchmarkVerify/numSigs:2-56                 100          11323520 ns/op           10427 B/op         68 allocs/op
+BenchmarkVerify/numSigs:4
+BenchmarkVerify/numSigs:4-56                  88          12718682 ns/op           16647 B/op        104 allocs/op
+BenchmarkVerify/numSigs:8
+BenchmarkVerify/numSigs:8-56                  78          14795445 ns/op           29184 B/op        176 allocs/op
+BenchmarkVerify/numSigs:16
+BenchmarkVerify/numSigs:16-56                 64          18065878 ns/op           55449 B/op        325 allocs/op
+BenchmarkVerify/numSigs:32
+BenchmarkVerify/numSigs:32-56                 44          26171904 ns/op          107248 B/op        615 allocs/op
+BenchmarkVerify/numSigs:64
+BenchmarkVerify/numSigs:64-56                 26          42388087 ns/op          210468 B/op       1193 allocs/op
+BenchmarkVerify/numSigs:128
+BenchmarkVerify/numSigs:128-56                15          73660495 ns/op          416396 B/op       2348 allocs/op
+BenchmarkVerify/numSigs:256
+BenchmarkVerify/numSigs:256-56                 9         128683458 ns/op          829381 B/op       4655 allocs/op
+BenchmarkVerify/numSigs:512
+BenchmarkVerify/numSigs:512-56                 5         241551249 ns/op         1654289 B/op       9267 allocs/op
+BenchmarkVerify/numSigs:1024
+BenchmarkVerify/numSigs:1024-56                3         485028019 ns/op         3299925 B/op      18490 allocs/op
+PASS
+ok      github.com/etclab/ncircl/multisig/bgoy07        894.699s

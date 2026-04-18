@@ -1,0 +1,26 @@
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/cryptofun
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkGenerateRSAKeyPair/keyLength:1024-56         	      38	  64716252 ns/op	  457577 B/op	    4033 allocs/op
+BenchmarkGenerateRSAKeyPair/keyLength:2048-56         	       6	 396873804 ns/op	 1074392 B/op	    8912 allocs/op
+BenchmarkGenerateRSAKeyPair/keyLength:3072-56         	       1	2477043772 ns/op	 3642760 B/op	   25210 allocs/op
+BenchmarkGenerateRSAKeyPair/keyLength:4096-56         	       2	1673723936 ns/op	 2262608 B/op	   10774 allocs/op
+BenchmarkRSASignSHA256/keyLength:1024-56              	    1849	    630350 ns/op	     528 B/op	       7 allocs/op
+BenchmarkRSASignSHA256/keyLength:2048-56              	     639	   1830428 ns/op	     912 B/op	       7 allocs/op
+BenchmarkRSASignSHA256/keyLength:3072-56              	     225	   5408855 ns/op	   28944 B/op	      58 allocs/op
+BenchmarkRSASignSHA256/keyLength:4096-56              	     100	  11543131 ns/op	   38544 B/op	      58 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:1024-56            	   62452	     19787 ns/op	    1072 B/op	      13 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:2048-56            	   20253	     59400 ns/op	    1328 B/op	      13 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:3072-56            	    3242	    349935 ns/op	   43826 B/op	      97 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:4096-56            	    2054	    590605 ns/op	   62260 B/op	     105 allocs/op
+BenchmarkRSAEncrypt/keyLength:1024-56                 	   57494	     20996 ns/op	    1224 B/op	      15 allocs/op
+BenchmarkRSAEncrypt/keyLength:2048-56                 	   20031	     60174 ns/op	    1608 B/op	      15 allocs/op
+BenchmarkRSAEncrypt/keyLength:3072-56                 	    3386	    353457 ns/op	   44233 B/op	      99 allocs/op
+BenchmarkRSAEncrypt/keyLength:4096-56                 	    2298	    590818 ns/op	   62793 B/op	     107 allocs/op
+BenchmarkRSADecrypt/RSADecrypt-1024-56                	    1988	    605733 ns/op	     360 B/op	       7 allocs/op
+BenchmarkRSADecrypt/RSADecrypt-2048-56                	     697	   1779701 ns/op	     488 B/op	       7 allocs/op
+BenchmarkRSADecrypt/RSADecrypt-3072-56                	     234	   5114319 ns/op	    5224 B/op	      17 allocs/op
+BenchmarkRSADecrypt/RSADecrypt-4096-56                	     104	  11442206 ns/op	    6888 B/op	      17 allocs/op
+PASS
+ok  	github.com/etclab/cryptofun	46.308s

@@ -1,0 +1,32 @@
+# Times are in nanoseconds
+#
+# - For sign, numSigs is the number of existing signatures on the signature
+#   being signed.
+# - For verify, numSigs is the number of signatures in the
+#   aggregate/multi-signature.  Note that this is never zero.  However, to make
+#   the figure look nice, I copy the verify latency for numSigs=1 to numSigs=0.
+# - For RSA, we use a key size of 3072-bits.  The specific cryptofun benchmarks
+#   are:
+#    - BenchmarkRSASignSHA256/keyLength:3072
+#    - BenchmarkRSAVerifySHA256/keyLength:3072
+#
+# - For RSA and ED255519, the sign column is the time to sign one
+#   message; it is irrelevant how many other messages were signed.  In contrast,
+#   verify is the time to verify that many messages: this is simply the time to
+#   verify one message times the total number of message.  To make the plot look
+#   nice, duplicate the entry or numSigs=1 for numSigs=0.
+#
+#           RSA                 ED25519             BGLS03                  B03                 BGOY07
+# numSigs   sign    verify      sign    verify      sign        verify      sign    verify      sign        verify
+0           4053910 549227      35084   72863       571920     4302845      550764  4472070     2824481     11198284
+1           4053910 549227      35084   72863       551268     4302845      546160  4472070     14444027    11198284
+2           4053910 1098454     35084   145726      520387     6552194      529459  4454691     14989195    11323520
+4           4053910 2196908     35084   291452      533525    11454542      519505  4503597     16854739    12718682
+8           4053910 4393816     35084   582904      524458    21026172      533991  4376554     20176050    14795445
+16          4053910 8787632     35084   1165808     533029    37924677      519909  4525829     27008635    18065878
+32          4053910 17575264    35084   2331616     512887    77526099      520015  4456895     38867022    26171904
+64          4053910 35150528    35084   4663232     528004   152514282      547418  4757535     63627340    42388087
+128         4053910 70301056    35084   9326464     532525   305738321      529952  5036379     119850391   73660495
+256         4053910 140602112   35084   18652928    532664   582635718      525056  5377647     209855810   128683458
+512         4053910 281204224   35084   37305856    547690  1158103168      532269  6686215     429727336   241551249
+1024        4053910 562408448   35084   74611712    523922  2326177905      522502  8836591     835737770   485028019

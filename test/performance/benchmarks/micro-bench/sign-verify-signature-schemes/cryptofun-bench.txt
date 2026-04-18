@@ -1,0 +1,28 @@
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/cryptofun
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkEd25519phSign
+BenchmarkEd25519phSign-56      	   26557	     45596 ns/op	     160 B/op	       3 allocs/op
+BenchmarkEd2519phVerify
+BenchmarkEd2519phVerify-56     	   12357	     97247 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRSASignSHA256
+BenchmarkRSASignSHA256/keyLength:1024
+BenchmarkRSASignSHA256/keyLength:1024-56         	    1837	    626834 ns/op	     528 B/op	       7 allocs/op
+BenchmarkRSASignSHA256/keyLength:2048
+BenchmarkRSASignSHA256/keyLength:2048-56         	     699	   1799502 ns/op	     912 B/op	       7 allocs/op
+BenchmarkRSASignSHA256/keyLength:3072
+BenchmarkRSASignSHA256/keyLength:3072-56         	     219	   5538563 ns/op	   28995 B/op	      58 allocs/op
+BenchmarkRSASignSHA256/keyLength:4096
+BenchmarkRSASignSHA256/keyLength:4096-56         	     100	  12223936 ns/op	   38544 B/op	      58 allocs/op
+BenchmarkRSAVerifySHA256
+BenchmarkRSAVerifySHA256/keyLength:1024
+BenchmarkRSAVerifySHA256/keyLength:1024-56       	   61153	     20369 ns/op	    1072 B/op	      13 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:2048
+BenchmarkRSAVerifySHA256/keyLength:2048-56       	   19842	     59573 ns/op	    1328 B/op	      13 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:3072
+BenchmarkRSAVerifySHA256/keyLength:3072-56       	    3394	    364245 ns/op	   43826 B/op	      97 allocs/op
+BenchmarkRSAVerifySHA256/keyLength:4096
+BenchmarkRSAVerifySHA256/keyLength:4096-56       	    1900	    594796 ns/op	   62260 B/op	     105 allocs/op
+PASS
+ok  	github.com/etclab/cryptofun	17.218s

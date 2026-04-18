@@ -1,0 +1,3 @@
+[submodule "test/performance/benchmarks/micro-bench/ncircle"]
+	path = test/performance/benchmarks/micro-bench/ncircle
+	url = https://github.com/etclab/ncircl

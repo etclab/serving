@@ -1,0 +1,88 @@
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/pre/afgh05
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen-56                	     590	   1995534 ns/op	     896 B/op	      16 allocs/op
+BenchmarkReEncryptionKeyGen-56    	     820	   1493272 ns/op	     328 B/op	       3 allocs/op
+BenchmarkEncrypt-56               	     385	   3105054 ns/op	    1144 B/op	      14 allocs/op
+BenchmarkDecrypt1-56              	     264	   4572474 ns/op	    1184 B/op	       3 allocs/op
+BenchmarkReEncrypt-56             	     374	   3184559 ns/op	     592 B/op	       2 allocs/op
+BenchmarkDecrypt2-56              	     450	   2738578 ns/op	     608 B/op	       2 allocs/op
+PASS
+ok  	github.com/etclab/ncircl/pre/afgh05	7.324s
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/pre/bbs98
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen/P-224-56       	   15121	     80125 ns/op	     599 B/op	      15 allocs/op
+BenchmarkKeyGen/P-256-56       	   49106	     24780 ns/op	     584 B/op	      12 allocs/op
+BenchmarkKeyGen/P-384-56       	    4038	    265854 ns/op	     830 B/op	      16 allocs/op
+BenchmarkKeyGen/P-384/circl-56 	    2313	    530057 ns/op	    4722 B/op	      31 allocs/op
+BenchmarkKeyGen/P-521-56       	    1507	    717204 ns/op	    1413 B/op	      20 allocs/op
+BenchmarkReEncryptKeyGen/P-224-56         	  308250	      4869 ns/op	     792 B/op	      18 allocs/op
+BenchmarkReEncryptKeyGen/P-256-56         	  225157	      5326 ns/op	     792 B/op	      18 allocs/op
+BenchmarkReEncryptKeyGen/P-384-56         	  164388	      8153 ns/op	    1128 B/op	      20 allocs/op
+BenchmarkReEncryptKeyGen/P-384/circl-56   	  144993	      7995 ns/op	    1128 B/op	      20 allocs/op
+BenchmarkReEncryptKeyGen/P-521-56         	  108294	     10632 ns/op	    1336 B/op	      20 allocs/op
+BenchmarkEncrypt/P-224-56                 	    3553	    352152 ns/op	    1872 B/op	      48 allocs/op
+BenchmarkEncrypt/P-256-56                 	    9307	    130504 ns/op	    1864 B/op	      33 allocs/op
+BenchmarkEncrypt/P-384-56                 	    1034	   1186432 ns/op	    2608 B/op	      48 allocs/op
+BenchmarkEncrypt/P-384/circl-56           	    1147	   1046275 ns/op	   10264 B/op	      75 allocs/op
+BenchmarkEncrypt/P-521-56                 	     350	   3273057 ns/op	    3835 B/op	      50 allocs/op
+BenchmarkReEncrypt/P-224-56               	    5344	    258562 ns/op	     702 B/op	      14 allocs/op
+BenchmarkReEncrypt/P-256-56               	   12252	     97579 ns/op	     726 B/op	      11 allocs/op
+BenchmarkReEncrypt/P-384-56               	    1375	    886271 ns/op	     996 B/op	      14 allocs/op
+BenchmarkReEncrypt/P-384/circl-56         	    2364	    507657 ns/op	    4730 B/op	      27 allocs/op
+BenchmarkReEncrypt/P-521-56               	     481	   2518331 ns/op	    1370 B/op	      14 allocs/op
+BenchmarkDecrypt/P-224-56                 	    4146	    277220 ns/op	    1864 B/op	      44 allocs/op
+BenchmarkDecrypt/P-256-56                 	   10000	    111393 ns/op	    1872 B/op	      35 allocs/op
+BenchmarkDecrypt/P-384-56                 	    1308	    936189 ns/op	    2648 B/op	      46 allocs/op
+BenchmarkDecrypt/P-384/circl-56           	    1933	    573760 ns/op	    6544 B/op	      60 allocs/op
+BenchmarkDecrypt/P-521-56                 	     434	   2695662 ns/op	    3448 B/op	      46 allocs/op
+PASS
+ok  	github.com/etclab/ncircl/pre/bbs98	34.359s
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/pre/ch07
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen-56             	    2122	    486909 ns/op	     568 B/op	      14 allocs/op
+BenchmarkReEncryptKeyGen-56    	   60558	     20429 ns/op	      40 B/op	       2 allocs/op
+BenchmarkEncrypt-56            	      82	  12662030 ns/op	   11971 B/op	     152 allocs/op
+BenchmarkReEncrypt-56          	      78	  14882619 ns/op	    9842 B/op	      89 allocs/op
+BenchmarkDecrypt-56            	      52	  22248189 ns/op	   13491 B/op	     139 allocs/op
+PASS
+ok  	github.com/etclab/ncircl/pre/ch07	5.789s
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/pre/lv08
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen-56                	     603	   1963480 ns/op	     896 B/op	      16 allocs/op
+BenchmarkReEncryptionKeyGen-56    	     476	   2514002 ns/op	     704 B/op	       8 allocs/op
+BenchmarkEncrypt1-56              	      98	  10264691 ns/op	    7701 B/op	      66 allocs/op
+BenchmarkDecrypt1-56              	      55	  21188504 ns/op	    8466 B/op	      45 allocs/op
+BenchmarkEncrypt2-56              	     138	   8657250 ns/op	    6815 B/op	      53 allocs/op
+BenchmarkDecrypt2-56              	      78	  15175109 ns/op	    7308 B/op	      43 allocs/op
+BenchmarkReEncrypt-56             	     100	  10918096 ns/op	   11555 B/op	      95 allocs/op
+PASS
+ok  	github.com/etclab/ncircl/pre/lv08	8.121s
+goos: linux
+goarch: amd64
+pkg: github.com/etclab/ncircl/ecc/elgamal
+cpu: INTEL(R) XEON(R) GOLD 5512U
+BenchmarkKeyGen/P-224-56         	   14610	     81979 ns/op	     519 B/op	      13 allocs/op
+BenchmarkKeyGen/P-256-56         	   47350	     24580 ns/op	     504 B/op	      10 allocs/op
+BenchmarkKeyGen/P-384-56         	    3962	    265412 ns/op	     736 B/op	      14 allocs/op
+BenchmarkKeyGen/P-384/circl-56   	    2317	    521915 ns/op	    4624 B/op	      29 allocs/op
+BenchmarkKeyGen/P-521-56         	    1638	    696432 ns/op	    1257 B/op	      17 allocs/op
+BenchmarkEncrypt/P-224-56        	    3458	    355828 ns/op	    1768 B/op	      44 allocs/op
+BenchmarkEncrypt/P-256-56        	    8982	    129065 ns/op	    1760 B/op	      29 allocs/op
+BenchmarkEncrypt/P-384-56        	    1068	   1191611 ns/op	    2472 B/op	      44 allocs/op
+BenchmarkEncrypt/P-384/circl-56  	    1124	   1085979 ns/op	   10138 B/op	      71 allocs/op
+BenchmarkEncrypt/P-521-56        	     339	   3458062 ns/op	    3432 B/op	      44 allocs/op
+BenchmarkDecrypt/P-224-56        	    4593	    266862 ns/op	    1177 B/op	      28 allocs/op
+BenchmarkDecrypt/P-256-56        	   10000	    107076 ns/op	    1184 B/op	      19 allocs/op
+BenchmarkDecrypt/P-384-56        	    1293	    951839 ns/op	    1640 B/op	      28 allocs/op
+BenchmarkDecrypt/P-384/circl-56  	    2106	    564281 ns/op	    5536 B/op	      42 allocs/op
+BenchmarkDecrypt/P-521-56        	     448	   2636725 ns/op	    2248 B/op	      28 allocs/op
+PASS
+ok  	github.com/etclab/ncircl/ecc/elgamal	19.645s

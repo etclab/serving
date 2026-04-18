@@ -1,0 +1,28 @@
+# This file is a subset of the data in pre-go-benchmark.txt, the latter
+# of which was produced by:
+#
+#   cd ncircl
+#   go test -v -bench=. -benchmem ./pre/... ./ecc/elgamal
+#
+#   cd cryptofun
+#   go test -v -bench=RSA -benchmem
+# 
+# Values are in ns/op.
+#
+# If a scheme does not support an API function, the value is 0 for that
+# function.
+#
+# - ElGamal uses the Go standard library's P-256 curve, which provides ~128 bits of security
+# - BBS98 uses the Go standard library's P-256 curve, which provides ~128 bits of security
+# - RSA uses 3072-bit keys, which provides 128 bits of security.
+#--------------------------------------------------------------------
+Operation               ElGamal     RSA         BBS98   AFGH05  CH07        LV08
+KeyGen                  27491       999543535   25665   1326649 327458      1418512 
+"ReEncryption\nKeyGen"  0           0           8930    1030618 17923       1646311    
+Encrypt                 127730      571773      130483  2179323 8433014     0 
+Encrypt1                0           0           0       0       0           6939185 
+Encrypt2                0           0           0       0       0           5861732 
+ReEncrypt               0           0           130003  2080364 9712316     7193786 
+Decrypt                 123964      3817740     151134  0       14580972    0
+Decrypt1                0           0           0       3058030 0           14171555 
+Decrypt2                0           0           0       1896642 0           9948003 
