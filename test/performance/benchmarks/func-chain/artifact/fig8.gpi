@@ -1,0 +1,47 @@
+#!/usr/bin/env gnuplot
+
+load 'style.gpi'
+
+# Override the eps terminal from style.gpi with pdfcairo so we emit a PDF.
+set terminal pdfcairo enhanced color font "Helvetica, 12" size 9in, 5in
+set output "fig8.pdf"
+
+set grid ytics
+set tics nomirror
+
+set style data histogram
+set style histogram gap 5 clustered
+set style histogram errorbars linewidth 1
+set style fill solid 1 border -1
+
+set xlabel "Functions in the Workflow"
+
+set ylabel "Latency (ms) (log scale)"
+set logscale y
+
+set key font ",12" outside top horizontal maxrows 2 Left reverse
+
+set xtics ("Validate" 0, "Vote" 1, "Count Vote" 2, "Display" 3)
+
+
+if (!exists("rate"))     rate     = "100"
+if (!exists("duration")) duration = "5m"
+suffix = sprintf("_%srps_%s_traces.data", rate, duration)
+
+baseline       = "knative".suffix
+leader         = "leader-efunction".suffix
+member         = "member-efunction".suffix
+both           = "both".suffix
+both_sig       = "both-sig".suffix
+ego            = "efunction".suffix
+rsa_hybrid     = "rsa-efunction".suffix
+both_sig_audit = "both-hash-chain-sig".suffix
+     
+plot baseline using 4:6 linestyle 1 fillstyle pattern 3 title 'Knative Function', \
+    ego using 4:6 linestyle 2 fillstyle pattern 3 title 'EFunction', \
+    rsa_hybrid using 4:6 linestyle 3 fillstyle pattern 3 title 'RSA EFunction', \
+    leader using 4:6 linestyle 4 fillstyle pattern 3 title 'Lambada Leader EFunction', \
+    member using 4:6 linestyle 5 fillstyle pattern 3 title 'Lambada Follower EFunction', \
+    both using 4:6 linestyle 6 fillstyle pattern 3 title 'Lambada Leader+Follower EFunction', \
+    both_sig using 4:6 linestyle 7 fillstyle pattern 3 title 'Lambada Leader+Follower EFunction (Sig)', \
+    both_sig_audit using 4:6 linestyle 8 fillstyle pattern 3 title 'Lambada Leader+Follower EFunction (Log)'

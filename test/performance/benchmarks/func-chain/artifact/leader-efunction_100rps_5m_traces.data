@@ -1,0 +1,7 @@
+# time spent (milli-seconds)
+# Records processed: 300 (limit: 300)
+# function name           min                       max                       mean                      median                    std                      
+validate-fun              12.11                     12.74                     12.34                     12.32                     0.15                     
+vote-fun                  12.34                     13.07                     12.65                     12.63                     0.18                     
+count-vote-fun            12.40                     13.18                     12.67                     12.63                     0.19                     
+display-fun               12.55                     13.57                     12.78                     12.73                     0.21                     
