@@ -375,6 +375,7 @@ func makeQueueContainer(rev *v1.Revision, cfg *config.Config) (*corev1.Container
 	c := &corev1.Container{
 		Name:            QueueContainerName,
 		Image:           queueSidecarImage,
+		ImagePullPolicy: corev1.PullAlways,
 		Resources:       createQueueResources(cfg.Deployment, rev.GetAnnotations(), userContainer, useQPResourceDefaults, useSGXResources),
 		Ports:           ports,
 		StartupProbe:    nil,

@@ -18,12 +18,11 @@ ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "member-efunction" "leader
 CONFIGMAP_NAME="config-deployment"
 CONFIGMAP_NAMESPACE="knative-serving"
 
-# Set USE_AKS=true when running on AKS (skips local QCNL volume mount)
+# Set USE_AKS=true when running on AKS (uses Azure QCNL ConfigMap)
 # Export so child scripts (teardown.sh, deploy-services.sh) can access it
 export USE_AKS=${USE_AKS:-false}
 
 # Queue sidecar images for each variant type
-# Use AKS-specific images (no QCNL volume mount) when USE_AKS=true
 QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
 QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
 QUEUE_IMAGE_EGO_PRE_HASH_CHAIN="docker.io/atosh502/queue-proxy-ego-pre:latest"
@@ -187,26 +186,49 @@ function run_benchmark_for_strategy() {
     sleep 10
   fi
 
-  # Start auditor-sig in background for both-hash-chain-sig strategy
-  local auditor_pid=""
+  # Deploy auditor-sig in-cluster for both-hash-chain-sig strategy
   if [[ "$strategy" == "both-hash-chain-sig" ]]; then
-    echo "Starting auditor-sig in background..."
-    "$REPO_ROOT/dev/auditor-sig/run.sh" > "${strategy_dir}/auditor-sig.log" 2>&1 &
-    auditor_pid=$!
-    echo "auditor-sig started (PID: $auditor_pid)"
+    echo "Creating auditor-sig-keys secret from dev/client/ key files..."
+    kubectl delete secret auditor-sig-keys -n default --ignore-not-found=true
+    kubectl create secret generic auditor-sig-keys -n default \
+      --from-file=client-sk.pem="$REPO_ROOT/dev/client/client-sk.pem" \
+      --from-file=client-pk.pem="$REPO_ROOT/dev/client/client-pk.pem" \
+      --from-file=genesis.hash="$REPO_ROOT/dev/client/genesis.hash"
+
+    # echo "Building auditor-sig Docker image..."
+    # docker build -t "$KO_DOCKER_REPO/auditor-sig:bench" -f "$REPO_ROOT/dev/auditor-sig/Dockerfile" "$REPO_ROOT"
+    # docker push "$KO_DOCKER_REPO/auditor-sig:bench"
+
+    echo "Deploying auditor-sig in-cluster..."
+    export AUDITOR_SIG_IMAGE="${AUDITOR_SIG_IMAGE:-$KO_DOCKER_REPO/auditor-sig:bench}"
+    export POLL_INTERVAL="${POLL_INTERVAL:-200ms}"
+    export BATCH_SIZE="${BATCH_SIZE:-5}"
+    export BATCH_TIMEOUT="${BATCH_TIMEOUT:-2s}"
+    envsubst < "$REPO_ROOT/dev/yaml/auditor-sig.yaml" | kubectl apply -f -
+    kubectl wait --for=condition=available deployment/auditor-sig -n default --timeout=120s
+    echo "auditor-sig is ready"
     sleep 5  # Let auditor do initial global chain verification and cache BGLS keys
   fi
 
   # Run the benchmark job
   run_job func-chain-job "${SCRIPT_DIR}/func-chain-job.yaml" "$RATE" "$strategy" "$strategy_dir"
 
-  # Stop auditor-sig after benchmark completes
-  if [[ -n "$auditor_pid" ]]; then
+  # Collect audit-sink logs after benchmark completes
+  if [[ "$strategy" == "both-hash-chain-sig" ]]; then
+    echo "Collecting audit-sink logs..."
+    kubectl logs -n default deployment/audit-sink > "${strategy_dir}/audit-sink.log" 2>&1 || true
+    echo "audit-sink logs saved to: ${strategy_dir}/audit-sink.log"
+  fi
+
+  # Collect auditor-sig logs and clean up after benchmark completes
+  if [[ "$strategy" == "both-hash-chain-sig" ]]; then
     echo "Waiting for auditor-sig to process remaining records..."
     sleep 10  # Give auditor time to process the last batch
-    echo "Stopping auditor-sig (PID: $auditor_pid)..."
-    kill "$auditor_pid" 2>/dev/null || true
-    wait "$auditor_pid" 2>/dev/null || true
+    echo "Collecting auditor-sig logs..."
+    kubectl logs -n default deployment/auditor-sig > "${strategy_dir}/auditor-sig.log" 2>&1 || true
+    echo "Stopping auditor-sig deployment..."
+    kubectl delete deployment auditor-sig -n default --ignore-not-found=true
+    kubectl delete secret auditor-sig-keys -n default --ignore-not-found=true
     echo "auditor-sig stopped. Logs at: ${strategy_dir}/auditor-sig.log"
   fi
 
@@ -267,10 +289,3 @@ for strategy in "${STRATEGIES_TO_RUN[@]}"; do
 done
 echo "=========================================="
 
-# Reset QCNL volume mount setting if running in AKS mode
-if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
-  echo ""
-  echo "Resetting QCNL volume mount setting to default (enabled)..."
-  kubectl patch configmap config-deployment -n knative-serving \
-    --type merge -p '{"data":{"enable-qcnl-volume-mount":"true"}}'
-fi

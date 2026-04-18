@@ -134,8 +134,8 @@ case "$STRATEGY" in
     FUNCTION_CHAIN="$FUNCTION_CHAIN_EFUNCTION"
     FUNCTION_MODE="CHAIN"
     ATTACH_SIGNATURE="true"
-    VERIFY_SIGNATURE="false"
-    DISABLE_LOGGING="false"
+    VERIFY_SIGNATURE="true"
+    DISABLE_LOGGING="true"
     # flow tracking is disabled completely for functions, instead the auditor
     # will verify the chain entries and log a batch of spent flow_ids
     # FLOW_TRACKING_ENABLED="true"
@@ -184,3 +184,5 @@ echo "Pre-config secret created for strategy: $STRATEGY"
 echo "  FUNCTION_MODE: $FUNCTION_MODE"
 echo "  ATTACH_SIGNATURE: $ATTACH_SIGNATURE"
 echo "  FUNCTION_CHAIN: $FUNCTION_CHAIN"
+echo "  VERIFY_SIGNATURE: $VERIFY_SIGNATURE"
+echo "  DISABLE_LOGGING: $DISABLE_LOGGING"

@@ -7,7 +7,7 @@ STRATEGY="${1:-both}"
 ns=default
 
 # All available strategies
-ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "leader-efunction" "member-efunction" "both" "both-sig")
+ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "leader-efunction" "member-efunction" "both" "both-sig" "both-hash-chain-sig")
 
 echo "==========================================="
 echo "Tearing down func-chain benchmark services"
@@ -63,6 +63,11 @@ fi
 echo "Deleting audit-sink resources..."
 kubectl delete -f "$REPO_ROOT/dev/yaml/audit-sink.yaml" --ignore-not-found=true
 
+# Delete auditor-sig if present
+echo "Deleting auditor-sig resources..."
+kubectl delete deployment auditor-sig -n default --ignore-not-found=true
+kubectl delete secret auditor-sig-keys -n default --ignore-not-found=true
+
 # Delete common resources (broker, triggers, autoscaler config)
 echo "Deleting common resources from: $COMMON_DIR"
 kubectl delete -f "$COMMON_DIR" --ignore-not-found=true
@@ -82,10 +87,12 @@ kubectl delete leases --all -n "$ns" --ignore-not-found=true
 echo "Waiting for leases to be released..."
 kubectl wait --for=delete leases --all -n "$ns" --timeout=60s 2>/dev/null || true
 
-# Clear sealed state files from minikube node
-minikube ssh -- sudo rm -rf /var/lib/sealed-state/*
-
-echo "Restart etcd..."
-"$REPO_ROOT/dev/setup-etcd.sh"
+# Clear sealed state files from all nodes
+echo "Clearing sealed state files from all nodes..."
+if command -v minikube &>/dev/null && minikube status &>/dev/null; then
+  minikube ssh -- sudo rm -rf /var/lib/sealed-state/*
+else
+  echo "Not running in minikube, skipping sealed state cleanup"
+fi
 
 echo "Teardown complete."

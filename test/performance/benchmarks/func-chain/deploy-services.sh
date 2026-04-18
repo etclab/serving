@@ -8,27 +8,21 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 STRATEGY="${1:-both}"
 ns=default
 
-# AKS mode: use services/aks/ directory (no QCNL volume mounts)
-# Set USE_AKS=true to enable (consistent with run-benchmark.sh)
 # Export so child scripts (teardown.sh) can access it
 export USE_AKS="${USE_AKS:-false}"
+SERVICES_DIR="$SCRIPT_DIR/services"
+
+echo "=========================================="
 if [[ "$USE_AKS" == "1" || "$USE_AKS" == "true" ]]; then
-  SERVICES_DIR="$SCRIPT_DIR/services/aks"
-  echo "=========================================="
   echo "Deploying func-chain services (AKS mode)"
-  echo "Strategy: $STRATEGY"
-  echo "=========================================="
-  # Ensure QCNL volume mount is disabled for AKS
-  echo "Ensuring QCNL volume mount is disabled for AKS..."
-  kubectl patch configmap config-deployment -n knative-serving \
-    --type merge -p '{"data":{"enable-qcnl-volume-mount":"false"}}'
+  # Apply Azure QCNL ConfigMap for AKS DCAP attestation
+  echo "Applying Azure QCNL ConfigMap..."
+  kubectl apply -f "$REPO_ROOT/dev/sgx/sgx-default-qcnl-azure.yaml"
 else
-  SERVICES_DIR="$SCRIPT_DIR/services"
-  echo "=========================================="
   echo "Deploying func-chain services"
-  echo "Strategy: $STRATEGY"
-  echo "=========================================="
 fi
+echo "Strategy: $STRATEGY"
+echo "=========================================="
 
 # Validate strategy
 case "$STRATEGY" in

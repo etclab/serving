@@ -35,16 +35,12 @@ kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v
 kubectl wait --for=condition=Ready pods --all -n knative-eventing --timeout=300s
 echo "Knative Eventing installation complete."
 
-# Disable QCNL volume mount for AKS (Azure has its own DCAP/PCCS configuration)
-echo "Disabling QCNL volume mount for AKS..."
-kubectl patch configmap config-deployment -n knative-serving \
-  --type merge -p '{"data":{"enable-qcnl-volume-mount":"false"}}'
+# Apply Azure QCNL ConfigMap (points to Azure ACC cache for DCAP attestation)
+echo "Applying Azure QCNL ConfigMap..."
+kubectl apply -f "$REPO_ROOT/dev/sgx/sgx-default-qcnl-azure.yaml"
 
 # Note: SGX device plugin is NOT deployed separately.
 # AKS with confcom addon provides SGX support automatically.
-
-# Note: update-pccs-url.sh is NOT needed for AKS.
-# Azure has its own working PCCS for attestation.
 
 echo ""
 echo "=========================================="
@@ -85,7 +81,6 @@ echo "Next steps:"
 echo "  1. Deploy services: USE_AKS=true ./deploy-services.sh <strategy>"
 echo "  2. Run benchmark:   USE_AKS=true ./run-benchmark.sh <strategy> <rate> <duration>"
 echo ""
-echo "Note: QCNL volume mount has been automatically disabled for AKS."
-echo "      USE_AKS=true ensures AKS-specific service configs are used."
+echo "Note: Azure QCNL ConfigMap has been applied for AKS DCAP attestation."
 echo ""
-echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig"
+echo "Available strategies: knative, efunction, rsa-efunction, leader-efunction, member-efunction, both, both-sig, both-hash-chain-sig"
