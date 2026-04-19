@@ -22,8 +22,8 @@ MEMBER_PP='{"g1":"F/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIs
 # function mode can be SINGLE or CHAIN
 # SINGLE meaning client invokes a single function directly and expects a response
 # CHAIN meaning client invokes a function that in turn invokes another function
-FUNCTION_MODE='SINGLE'
-# FUNCTION_MODE=''
+# Honor env override (defaults to SINGLE).
+FUNCTION_MODE="${FUNCTION_MODE-SINGLE}"
 
 # RSA key for tests
 # we inject with env vars to the queue-proxy container and clients for now 
@@ -70,7 +70,12 @@ FUNCTION_MODE='SINGLE'
 # 71FNC/BakPDBF2fXOQA7Ywvs
 # -----END PRIVATE KEY-----'
 
-ATTACH_SIGNATURE='false'
+ATTACH_SIGNATURE="${ATTACH_SIGNATURE-false}"
+
+# RSA_SK is read from the environment. When non-empty, the client encrypts
+# the message body with this RSA key and the queue-proxy decrypts it. Leave
+# empty to skip RSA encryption (used by samba and enclave strategies).
+RSA_SK="${RSA_SK-}"
 SIGNATURE_PP='{"g1":"l/HTpzGX15QmlWOMT6msD8NojE+XdLkFoU46PxcbrFhsVeg/+Xoa7/s68ArbIsa7","g2":"k+ArYFJxn2B9rNOgiCdPZVlr0NCZILYatdphu9x/UEkzTPESE5RdV+WsfQVdBCt+AkqisvCPCpEmCAUnLcUQUcbketT6QDsCtFELZHrj0XcLrAMmqAW779SAVsjBIb24"}'
 
 # pre-config secret is used to provide static keys for function invocation

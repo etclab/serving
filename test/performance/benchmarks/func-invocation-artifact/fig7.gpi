@@ -1,0 +1,30 @@
+#!/usr/bin/env gnuplot
+
+load 'style.gpi'
+
+# Override the eps terminal from style.gpi with pdfcairo so we emit a PDF.
+set terminal pdfcairo enhanced color font "Helvetica, 12" size 9in, 5in
+set output "fig7.pdf"
+
+set grid ytics
+set tics nomirror
+
+set xlabel "Number of Queries"
+set xrange [200:1300] 
+
+set ylabel "Latency (ms) (log scale)"
+set logscale y
+set key font ",12" outside top horizontal maxrows 2 Left reverse
+
+stock = "stock.data"
+enclave = "enclave.data"
+samba = "samba.data"
+rsa = "rsa.data"
+member = "lambada-member.data"
+
+plot stock every ::0::4 using 1:4 with linespoints linestyle 1 linewidth 6 dashtype 1 pointtype 1 title 'Knative Function', \
+     enclave every ::0::4 using 1:4 with linespoints linestyle 2 linewidth 6 dashtype 1 pointtype 2 title 'EFunction', \
+     rsa every ::0::4 using 1:4 with linespoints linestyle 3 linewidth 6 dashtype 1 pointtype 3 title 'RSA EFunction', \
+     samba every ::0::4 using 1:4 with linespoints linestyle 4 linewidth 6 dashtype 1 pointtype 4 title 'LAMBADA Leader EFunction', \
+     member every ::0::4 using 1:4 with linespoints linestyle 5 linewidth 6 dashtype 1 pointtype 5 title 'LAMBADA Follower EFunction', \
+     
