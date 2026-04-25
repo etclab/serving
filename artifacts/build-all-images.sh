@@ -95,16 +95,17 @@ PUSH="$PUSH" TAG=latest IMAGE_NAME="${REGISTRY}/queue-proxy-ego-pre" "$REPO_ROOT
 PUSH="$PUSH" TAG=bench  IMAGE_NAME="${REGISTRY}/queue-proxy-ego-pre" "$REPO_ROOT/dev/queue-proxy/build.sh"
 
 # queue-39be6f1d08a095bd076a71d288d295b6:og + queue-proxy-ego:bench -- built from main
-log "Switching to main to build queue:og and queue-proxy-ego:bench"
+# Use a detached worktree so we don't have to switch branches in the primary
+# checkout (config/*.yaml may be dirty on ae-sacmat26 from prior steps).
+log "Building queue:og and queue-proxy-ego:bench from main (via worktree)"
+MAIN_WT="$(mktemp -d -t serving-main-XXXXXX)/serving-main"
+git -C "$REPO_ROOT" worktree add --detach "$MAIN_WT" main
+trap 'git -C "$REPO_ROOT" worktree remove --force "$MAIN_WT" >/dev/null 2>&1 || true; rm -rf "$(dirname "$MAIN_WT")"' EXIT
 (
-    cd "$REPO_ROOT"
-    git switch main
+    cd "$MAIN_WT"
     KO_DOCKER_REPO="docker.io/${REGISTRY}" ko build --tags og $(push_flag) --sbom none ./cmd/queue
 
     PUSH="$PUSH" TAG=bench IMAGE_NAME="${REGISTRY}/queue-proxy-ego" ./dev/queue-proxy/build.sh
-
-    log "Switching back to ae-sacmat26"
-    git switch ae-sacmat26
 )
 
 # ----------------------------------------------------------------------------
