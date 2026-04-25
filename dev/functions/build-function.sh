@@ -13,6 +13,10 @@ FUNCTION_DIR="$2"
 DOCKER_IMG_NAME="$3"
 
 TAG=${TAG:-latest}
+REGISTRY=${REGISTRY:-atosh502}
+PUSH=${PUSH:-true}
+
+IMAGE="${REGISTRY}/${DOCKER_IMG_NAME}:${TAG}"
 
 # ensure <scaffold-dir>/f exists
 mkdir -p $SCAFFOLD_DIR/f
@@ -20,15 +24,22 @@ mkdir -p $SCAFFOLD_DIR/f
 # copy everything inside appender dir to scaffold/f dir
 cp -r $FUNCTION_DIR/* $SCAFFOLD_DIR/f/
 
+PUSH_ARG=""
+if [[ "$PUSH" == "true" ]]; then
+    PUSH_ARG="--push"
+fi
+
 # run the docker build command
 cd $SCAFFOLD_DIR
 DOCKER_BUILDKIT=1 docker build --secret id=signingkey,src=$PRIVATE_KEY \
-    --target deploy -t "atosh502/${DOCKER_IMG_NAME}:${TAG}" --push .
+    --target deploy -t "${IMAGE}" $PUSH_ARG .
 
-docker rmi "atosh502/${DOCKER_IMG_NAME}:${TAG}" --force || true
-docker pull "atosh502/${DOCKER_IMG_NAME}:${TAG}"
+if [[ "$PUSH" == "true" ]]; then
+    docker rmi "${IMAGE}" --force || true
+    docker pull "${IMAGE}"
+fi
 
-minikube image unload "atosh502/${DOCKER_IMG_NAME}:${TAG}" || true
-minikube image load "atosh502/${DOCKER_IMG_NAME}:${TAG}"
+minikube image unload "${IMAGE}" || true
+minikube image load "${IMAGE}"
 
 cd -

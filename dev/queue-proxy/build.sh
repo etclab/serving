@@ -12,6 +12,7 @@
 
 TAG=${TAG:-latest}
 IMAGE_NAME=${IMAGE_NAME:-atosh502/queue-proxy-ego}
+PUSH=${PUSH:-true}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEYS_DIR="$SCRIPT_DIR/../keys"
@@ -27,18 +28,25 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 # switch to project root
 cd $PROJECT_ROOT
 
+PUSH_ARG=""
+if [[ "$PUSH" == "true" ]]; then
+    PUSH_ARG="--push"
+fi
+
 DOCKER_BUILDKIT=1 docker build \
     --secret id=signingkey,src=$PRIVATE_KEY \
     --target deploy \
     --tag "${IMAGE_NAME}:${TAG}" \
-    --push \
+    $PUSH_ARG \
     -f $DOCKER_FILE \
     ${PROJECT_ROOT}
 
-docker rmi "${IMAGE_NAME}:${TAG}" --force || true
-docker pull "${IMAGE_NAME}:${TAG}"
+if [[ "$PUSH" == "true" ]]; then
+    docker rmi "${IMAGE_NAME}:${TAG}" --force || true
+    docker pull "${IMAGE_NAME}:${TAG}"
+fi
 
 minikube image unload "${IMAGE_NAME}:${TAG}" || true
 minikube image load "${IMAGE_NAME}:${TAG}"
 
-cd - 
+cd -
