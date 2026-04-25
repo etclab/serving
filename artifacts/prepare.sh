@@ -88,6 +88,16 @@ install_az() {
     curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 }
 
+install_func() {
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -L -o "$tmp/func" \
+        https://github.com/knative/func/releases/latest/download/func_linux_amd64
+    chmod +x "$tmp/func"
+    sudo mv "$tmp/func" /usr/local/bin/func
+    rm -rf "$tmp"
+}
+
 # ----- main -----
 
 log "Starting artifact prerequisite check"
@@ -98,6 +108,7 @@ check_or_install docker   "docker --version"            install_docker
 check_or_install kubectl  "kubectl version --client=true --output=yaml" install_kubectl
 check_or_install minikube "minikube version"            install_minikube
 check_or_install helm     "helm version"                install_helm
+check_or_install func     "func version"                install_func
 check_or_install az       "az version"                  install_az
 log "NOTE: If you plan to use a remote (e.g. AKS) cluster, run 'az login' to authenticate the Azure CLI before running the benchmark setup scripts."
 check_or_install cpuid    "cpuid -v"                    install_cpuid
