@@ -98,6 +98,22 @@ install_func() {
     rm -rf "$tmp"
 }
 
+install_go() {
+    local go_version="1.24.3"
+    local tarball="go${go_version}.linux-amd64.tar.gz"
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -L -o "$tmp/$tarball" "https://go.dev/dl/$tarball"
+    sudo rm -rf /usr/local/go
+    sudo tar -C /usr/local -xzf "$tmp/$tarball"
+    rm -rf "$tmp"
+    export PATH="$PATH:/usr/local/go/bin"
+    if ! grep -q '/usr/local/go/bin' "$HOME/.bashrc" 2>/dev/null; then
+        echo 'export PATH=$PATH:/usr/local/go/bin' >> "$HOME/.bashrc"
+        log "Added /usr/local/go/bin to PATH in ~/.bashrc (re-source or re-login to take effect)"
+    fi
+}
+
 # ----- main -----
 
 log "Starting artifact prerequisite check"
@@ -109,6 +125,7 @@ check_or_install kubectl  "kubectl version --client=true --output=yaml" install_
 check_or_install minikube "minikube version"            install_minikube
 check_or_install helm     "helm version"                install_helm
 check_or_install func     "func version"                install_func
+check_or_install go       "go version"                  install_go
 check_or_install az       "az version"                  install_az
 log "NOTE: If you plan to use a remote (e.g. AKS) cluster, run 'az login' to authenticate the Azure CLI before running the benchmark setup scripts."
 check_or_install cpuid    "cpuid -v"                    install_cpuid
