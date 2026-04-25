@@ -38,6 +38,20 @@ log() { printf '[build-all-images] %s\n' "$*"; }
 log "Registry: $REGISTRY"
 log "Push:     $PUSH"
 
+# When pushing, verify docker is logged in as the registry user.
+if [[ "$PUSH" == "true" ]]; then
+    DOCKER_USER="$(docker info 2>/dev/null | awk -F': ' '/^ Username:/ {print $2; exit}')"
+    if [[ -z "$DOCKER_USER" ]]; then
+        echo "[build-all-images] ERROR: docker is not logged in. Run 'docker login' as '$REGISTRY' before retrying (or pass --no-push)." >&2
+        exit 1
+    fi
+    if [[ "$DOCKER_USER" != "$REGISTRY" ]]; then
+        echo "[build-all-images] ERROR: docker is logged in as '$DOCKER_USER' but --registry is '$REGISTRY'. Login as '$REGISTRY' or pass --registry '$DOCKER_USER'." >&2
+        exit 1
+    fi
+    log "Docker login: $DOCKER_USER (matches registry)"
+fi
+
 # Subscript flag conventions differ; build helpers per tool.
 push_flag()    { [[ "$PUSH" == "true" ]] && echo "--push" || echo ""; }
 no_push_flag() { [[ "$PUSH" == "true" ]] && echo ""       || echo "--no-push"; }
