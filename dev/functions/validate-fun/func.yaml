@@ -6,3 +6,6 @@ created: 2025-07-11T12:22:07.767163354-04:00
 invoke: cloudevent
 build:
   builder: pack
+  buildEnvs:
+    - name: GOFLAGS
+      value: "-mod=mod"
