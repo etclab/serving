@@ -182,4 +182,15 @@ if have cpuid; then
     fi
 fi
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
+MICRO_BENCH_SETUP="$REPO_ROOT/test/performance/benchmarks/micro-bench/setup-micro-bench.sh"
+
+if [ -x "$MICRO_BENCH_SETUP" ]; then
+    log "Running micro-bench setup: $MICRO_BENCH_SETUP"
+    "$MICRO_BENCH_SETUP"
+else
+    warn "micro-bench setup script not found or not executable: $MICRO_BENCH_SETUP"
+fi
+
 log "Done."
