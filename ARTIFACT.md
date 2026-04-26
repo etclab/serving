@@ -2,19 +2,19 @@
 
 All benchmarks are run on Linux/Ubuntu machines. 
 
-## 1. Setup/Installation
-- Install all the required software/packages with:
-    ```bash
-    ./artifacts/prepare.sh
-    source ~/.bashrc
-    ```
-
-## 2. Download the artifacts
+## 1. Download the artifacts
 - Download artifact source files using: 
     ```bash
     git clone https://github.com/etclab/serving.git
     cd serving
     git switch ae-sacmat26
+    ```
+
+## 2. Setup/Installation
+- Install all the required software/packages with:
+    ```bash
+    ./artifacts/prepare.sh
+    source ~/.bashrc
     ```
 
 ## 3. Build images (Optional)
