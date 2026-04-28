@@ -62,7 +62,8 @@ install_docker() {
 
 install_kubectl() {
     local k8s_version
-    k8s_version="$(curl -L -s https://dl.k8s.io/release/stable.txt)"
+    # k8s_version="$(curl -L -s https://dl.k8s.io/release/stable.txt)"
+    k8s_version="v1.33.0"
     local tmp
     tmp="$(mktemp -d)"
     curl -L -o "$tmp/kubectl" "https://dl.k8s.io/release/${k8s_version}/bin/linux/amd64/kubectl"
@@ -75,7 +76,7 @@ install_minikube() {
     local tmp
     tmp="$(mktemp -d)"
     curl -L -o "$tmp/minikube-linux-amd64" \
-        https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        https://storage.googleapis.com/minikube/releases/v1.38.0/minikube-linux-amd64
     sudo install "$tmp/minikube-linux-amd64" /usr/local/bin/minikube
     rm -rf "$tmp"
 }
@@ -102,7 +103,7 @@ install_kn() {
     local tmp
     tmp="$(mktemp -d)"
     curl -L -o "$tmp/kn" \
-        https://github.com/knative/client/releases/latest/download/kn-linux-amd64
+        https://github.com/knative/client/releases/download/knative-v1.17.0/kn-linux-amd64
     chmod +x "$tmp/kn"
     sudo mv "$tmp/kn" /usr/local/bin/kn
     rm -rf "$tmp"
@@ -204,7 +205,5 @@ else
     warn "micro-bench setup script not found or not executable: $MICRO_BENCH_SETUP"
 fi
 
-log "Running `newgrp docker` to avoid re-login"
-newgrp docker
 
 log "Done."
