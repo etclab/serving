@@ -108,6 +108,16 @@ install_kn() {
     rm -rf "$tmp"
 }
 
+install_kn_quickstart() {
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -L -o "$tmp/kn-quickstart" \
+        https://github.com/knative-extensions/kn-plugin-quickstart/releases/download/knative-v1.21.1/kn-quickstart-linux-amd64
+    chmod +x "$tmp/kn-quickstart"
+    sudo mv "$tmp/kn-quickstart" /usr/local/bin/kn-quickstart
+    rm -rf "$tmp"
+}
+
 install_ko() {
     local gobin="${GOPATH:-$HOME/go}/bin"
     /usr/local/go/bin/go install github.com/google/ko@latest
@@ -141,8 +151,9 @@ check_or_install kubectl  "kubectl version --client=true --output=yaml" install_
 check_or_install minikube "minikube version"            install_minikube
 check_or_install helm     "helm version"                install_helm
 check_or_install func     "func version"                install_func
-check_or_install kn       "kn version"                  install_kn
-check_or_install go       "go version"                  install_go
+check_or_install kn             "kn version"                  install_kn
+check_or_install kn-quickstart  "kn-quickstart version"       install_kn_quickstart
+check_or_install go             "go version"                  install_go
 check_or_install ko       "ko version"                  install_ko
 check_or_install az       "az version"                  install_az
 log "NOTE: If you plan to use a remote (e.g. AKS) cluster, run 'az login' to authenticate the Azure CLI before running the benchmark setup scripts."
