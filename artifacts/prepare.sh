@@ -204,4 +204,7 @@ else
     warn "micro-bench setup script not found or not executable: $MICRO_BENCH_SETUP"
 fi
 
+log "Running `newgrp docker` to avoid re-login"
+newgrp docker
+
 log "Done."
