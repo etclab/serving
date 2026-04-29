@@ -10,7 +10,11 @@ set grid ytics
 set tics nomirror
 
 set xlabel "Number of Queries"
-set xrange [200:1300] 
+# Auto-scale the x axis from whatever rates the benchmark actually ran
+# (column 1 of every *.data file). The 5% graph offset on each side
+# leaves a little breathing room so endpoint markers aren't clipped.
+set xrange [*:*]
+set offsets graph 0.05, 0.05, 0, 0
 
 set ylabel "Latency (ms) (log scale)"
 set logscale y

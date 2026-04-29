@@ -4,14 +4,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 
-"${SCRIPT_DIR}/../../../../eval/s/test-secret.sh"
+# USE_AKS=true skips test-secret.sh (the AKS performance-test-config secret is
+# created once by func-chain/setup-benchmark-aks.sh and already includes the
+# influxurl/influxtoken keys this benchmark needs).
+export USE_AKS="${USE_AKS:-false}"
+if [[ "$USE_AKS" != "true" && "$USE_AKS" != "1" ]]; then
+  "${SCRIPT_DIR}/../../../../eval/s/test-secret.sh"
+fi
 
 timestamp=$(date +%F_%T)
 
 ns=default
-ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
+  ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}/aks"
+else
+  ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+fi
 
 mkdir -p "$ARTIFACTS"
+
+# Configurable rates and duration. Set RATES (space-separated) and DURATION
+# in the environment to override the defaults.
+DURATION="${DURATION:-5m}"
+RATES_STR="${RATES:-250 500 750 1000 1250 1500}"
+read -ra rates <<< "$RATES_STR"
 
 function run_job() {
   local name=$1
@@ -22,7 +38,7 @@ function run_job() {
   kubectl delete job "$name" -n "$ns" --ignore-not-found=true
 
   # start the load test and get the logs
-  RATE=$rate envsubst < "$file" | ko apply --sbom=none -Bf -
+  RATE=$rate DURATION=$DURATION envsubst < "$file" | ko apply --sbom=none -Bf -
 
   # sleep a bit to make sure the job is created
   sleep 5
@@ -39,7 +55,7 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-rates=(250 500 750 1000 1250 1500)
+echo "Rates: ${rates[*]}  Duration: $DURATION"
 for rate in "${rates[@]}"; do
   echo "Running func-invocation-appender.yaml with rate: $rate"
 
@@ -52,3 +68,7 @@ for rate in "${rates[@]}"; do
   # run
   run_job func-invocation-appender "${SCRIPT_DIR}/func-invocation-appender.yaml" $rate
 done
+
+# Final teardown so the appender ksvc isn't left deployed after the last rate.
+echo "Final teardown..."
+"${SCRIPT_DIR}/teardown.sh"

@@ -69,17 +69,31 @@ echo "=========================================="
 
 echo ""
 echo "=========================================="
+echo "Installing InfluxDB (required by func-invocation* benchmarks)..."
+echo "=========================================="
+
+# Install InfluxDB via helm and initialize the Knativetest org + knative-serving
+# bucket. eval/s/influx.sh sed-rewrites INFLUX_TOKEN in eval/s/env.sh on success,
+# so we re-source env.sh below to pick up the fresh token before creating the
+# performance-test-config secret.
+"$REPO_ROOT/eval/s/influx.sh"
+
+echo ""
+echo "=========================================="
 echo "Creating performance-test-config secret..."
 echo "=========================================="
 
-# Create performance-test-config secret
+# Re-source env.sh AFTER influx.sh so INFLUX_TOKEN reflects the freshly-issued
+# admin token written into env.sh by the helm install above.
 source "$REPO_ROOT/eval/s/env.sh"
 
 kubectl delete secret performance-test-config -n default --ignore-not-found=true
 kubectl create secret generic performance-test-config -n default \
   --from-literal=systemnamespace="${SYSTEM_NAMESPACE:-knative-serving}" \
   --from-literal=jobname="${JOB_NAME:-local}" \
-  --from-literal=buildid="${BUILD_ID:-local}"
+  --from-literal=buildid="${BUILD_ID:-local}" \
+  --from-literal=influxurl="${INFLUX_URL}" \
+  --from-literal=influxtoken="${INFLUX_TOKEN}"
 
 echo ""
 echo "=========================================="

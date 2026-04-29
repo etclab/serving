@@ -58,7 +58,14 @@ def latest_run_dir(folder: Path) -> Path | None:
     candidates = [p for p in run_root.iterdir() if p.is_dir()]
     if not candidates:
         return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    # AKS runs nest the rate logs one level deeper (run/<ts>/aks/<rate>.log).
+    # If the picked dir has no <rate>.log files but does have an aks/ subdir,
+    # descend into it.
+    aks_sub = latest / "aks"
+    if aks_sub.is_dir() and not any(p.name.split(".")[0].isdigit() and p.suffix == ".log" for p in latest.iterdir()):
+        return aks_sub
+    return latest
 
 
 def parse_run_dir(run_dir: Path) -> dict[int, dict[str, float]]:

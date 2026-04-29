@@ -7,12 +7,24 @@ source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 export KO_DOCKER_REPO='docker.io/atosh502'
 # export KO_DOCKER_REPO="us-east1-docker.pkg.dev/ornate-flame-397517/lambada"
 
+export USE_AKS="${USE_AKS:-false}"
+
 timestamp=$(date +%F_%T)
 
 ns=default
-ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
+  ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}/aks"
+else
+  ARTIFACTS="${SCRIPT_DIR}/run/${timestamp}"
+fi
 
 mkdir -p "$ARTIFACTS"
+
+# Configurable rates and duration. Set RATES (space-separated) and DURATION
+# in the environment to override the defaults.
+DURATION="${DURATION:-5m}"
+RATES_STR="${RATES:-250 500 750 1000 1250 1500}"
+read -ra rates <<< "$RATES_STR"
 
 function run_job() {
   local name=$1
@@ -23,7 +35,7 @@ function run_job() {
   kubectl delete job "$name" -n "$ns" --ignore-not-found=true
 
   # start the load test and get the logs
-  RATE=$rate envsubst < "$file" | ko apply --sbom=none -Bf -
+  RATE=$rate DURATION=$DURATION envsubst < "$file" | ko apply --sbom=none -Bf -
 
   # sleep a bit to make sure the job is created
   sleep 5
@@ -40,7 +52,7 @@ function run_job() {
   kubectl wait --for=delete "job/$name" --timeout=60s -n "$ns"
 }
 
-rates=(250 500 750 1000 1250 1500)
+echo "Rates: ${rates[*]}  Duration: $DURATION"
 for rate in "${rates[@]}"; do
   echo "Running func-invocation-ego-member-job.yaml with rate: $rate"
 
@@ -59,3 +71,8 @@ for rate in "${rates[@]}"; do
   echo "Waiting for 60 seconds before the next run..."
   sleep 60
 done
+
+# Final teardown so the appender-ego-leader/-member ksvcs aren't left deployed
+# after the last rate.
+echo "Final teardown..."
+"${SCRIPT_DIR}/teardown.sh"

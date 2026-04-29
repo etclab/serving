@@ -10,10 +10,11 @@
 #
 # Environment:
 #   RATES               Space-separated list of vegeta rates to run
-#                       (default: "250 500 750 1000 1250 1500"). Note that
-#                       the underlying run-appender*.sh scripts iterate
-#                       a hardcoded list — overriding this here only
-#                       affects which rates extract-fig7-data.py expects.
+#                       (default: "250 500 750 1000 1250 1500"). Forwarded to
+#                       the underlying run-appender*.sh scripts, which iterate
+#                       these rates and produce one <rate>.log per entry.
+#   DURATION            Per-rate vegeta duration (default: "5m"). Forwarded
+#                       through envsubst into each Job YAML's --duration arg.
 #   RSA_SK_FILE         Path to a PEM file containing the RSA private key
 #                       used by the rsa strategy. If unset, the key is
 #                       extracted from func-chain/pre-config.sh.
@@ -33,6 +34,16 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$HERE/.." && pwd)"
+
+# When USE_AKS=true, child run-appender*.sh scripts write logs into
+# run/<ts>/aks/ instead of run/<ts>/. Export so child shells inherit.
+export USE_AKS="${USE_AKS:-false}"
+
+# RATES and DURATION are read by each run-appender*.sh. Export so they
+# propagate through both `( cd … && ./run-appender.sh )` and
+# `bash -c "cd … && ./run-appender-ego.sh"` invocations below.
+export RATES="${RATES:-250 500 750 1000 1250 1500}"
+export DURATION="${DURATION:-5m}"
 
 STRATEGY_ARG="${1:-all}"
 ALL_STRATEGIES=(stock enclave rsa samba lambada-member)
@@ -134,6 +145,11 @@ run_one() {
   if [[ -z "$after_latest" || "$after_latest" == "$before_latest" ]]; then
     echo "[$strategy] error: no new run directory appeared under $folder/run" >&2
     return 1
+  fi
+  # On AKS, the run-appender*.sh scripts write logs into run/<ts>/aks/, so
+  # point extract-fig7-data.py at that subfolder rather than the timestamp dir.
+  if [[ "$USE_AKS" == "true" || "$USE_AKS" == "1" ]]; then
+    after_latest="$after_latest/aks"
   fi
   RUN_DIR_FOR_STRATEGY[$strategy]="$after_latest"
   echo "[$strategy] produced $after_latest"
