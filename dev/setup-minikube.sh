@@ -5,8 +5,8 @@ minikube delete -p knative
 minikube addons enable metrics-server
 
 minikube config set driver docker
-minikube config set memory 32768
-minikube config set cpus 16
+minikube config set memory 8192
+minikube config set cpus 4
 
 kn quickstart minikube --kubernetes-version=v1.33.0
 
