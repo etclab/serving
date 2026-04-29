@@ -32,7 +32,7 @@ fi
 if [[ "${SKIP_BENCHMARK:-false}" != "true" ]]; then
     echo "==> running benchmark for all strategies (rate=${RATE}, duration=${DURATION})"
     eval $(minikube docker-env)
-    "$BENCH_DIR/run-benchmark.sh" all "$RATE" "$DURATION"
+    USE_AKS=true "$BENCH_DIR/run-benchmark.sh" all "$RATE" "$DURATION"
 
     echo "==> collecting *_traces.data into $HERE"
     python3 "$HERE/extract-fig8-data.py" \

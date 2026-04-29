@@ -6,7 +6,7 @@ RESOURCE_GROUP="lambada"
 CLUSTER_NAME="lambada"
 LOCATION="eastus"
 VM_SIZE="Standard_DC4s_v3"  # SGX-capable VM
-NODE_COUNT=4
+NODE_COUNT=2
 
 echo "=========================================="
 echo "Setting up AKS cluster with SGX support..."

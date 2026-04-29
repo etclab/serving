@@ -60,6 +60,15 @@ echo "=========================================="
 
 echo ""
 echo "=========================================="
+echo "Installing kube-prometheus-stack..."
+echo "=========================================="
+
+# Install kube-prometheus-stack (Prometheus, Grafana, kube-state-metrics)
+# Port forwarding works the same for remote AKS - kubectl tunnels through the API server
+"$REPO_ROOT/eval/s/kube-prometheus.sh"
+
+echo ""
+echo "=========================================="
 echo "Creating performance-test-config secret..."
 echo "=========================================="
 

@@ -132,7 +132,7 @@ function run_job() {
   kubectl delete job "$name" -n "$ns" --ignore-not-found=true
 
   # Start the load test
-  RATE=$rate DURATION=$DURATION TARGET=$TARGET STRATEGY=$strategy envsubst < "$file" | ko apply --local --sbom=none -Bf -
+  RATE=$rate DURATION=$DURATION TARGET=$TARGET STRATEGY=$strategy envsubst < "$file" | ko apply --sbom=none -Bf -
 
   # Wait for pod to be ready
   sleep 5
