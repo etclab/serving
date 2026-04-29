@@ -23,6 +23,7 @@ CONFIGMAP_NAMESPACE="knative-serving"
 export USE_AKS=${USE_AKS:-false}
 
 # Queue sidecar images for each variant type
+QUEUE_IMAGE="docker.io/atosh502/queue-39be6f1d08a095bd076a71d288d295b6:og"
 QUEUE_IMAGE_EGO="docker.io/atosh502/queue-proxy-ego:bench"
 QUEUE_IMAGE_EGO_PRE="docker.io/atosh502/queue-proxy-ego-pre:bench"
 QUEUE_IMAGE_EGO_PRE_HASH_CHAIN="docker.io/atosh502/queue-proxy-ego-pre:latest"
@@ -56,7 +57,7 @@ get_queue_image_for_strategy() {
     local strategy=$1
     case "$strategy" in
         knative)
-            echo ""  # No change needed, uses default
+            echo "$QUEUE_IMAGE"  # No change needed, uses default
             ;;
         efunction)
             echo "$QUEUE_IMAGE_EGO"
@@ -131,7 +132,7 @@ function run_job() {
   kubectl delete job "$name" -n "$ns" --ignore-not-found=true
 
   # Start the load test
-  RATE=$rate DURATION=$DURATION TARGET=$TARGET STRATEGY=$strategy envsubst < "$file" | ko apply --sbom=none -Bf -
+  RATE=$rate DURATION=$DURATION TARGET=$TARGET STRATEGY=$strategy envsubst < "$file" | ko apply --local --sbom=none -Bf -
 
   # Wait for pod to be ready
   sleep 5

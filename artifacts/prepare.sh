@@ -47,6 +47,38 @@ install_apt_pkg() {
 install_git()     { install_apt_pkg git; }
 install_gnuplot() { install_apt_pkg gnuplot; }
 install_cpuid()   { install_apt_pkg cpuid; }
+install_pip()     { install_apt_pkg python3-pip; }
+
+have_py_pkg() {
+    python3 -c "import $1" >/dev/null 2>&1
+}
+
+ensure_py_pkg() {
+    local pkg="$1"
+    if have_py_pkg "$pkg"; then
+        log "[OK] python3 package '$pkg' already installed"
+        return 0
+    fi
+
+    if ! have pip3 && ! have pip; then
+        log "[MISSING] pip not found - installing python3-pip..."
+        install_pip || { err "Failed to install python3-pip"; return 1; }
+    fi
+
+    log "[MISSING] python3 package '$pkg' not found - installing..."
+    if have pip3; then
+        pip3 install --user "$pkg" || sudo pip3 install "$pkg"
+    else
+        pip install --user "$pkg" || sudo pip install "$pkg"
+    fi
+
+    if have_py_pkg "$pkg"; then
+        log "[INSTALLED] python3 package '$pkg' now available"
+    else
+        err "python3 package '$pkg' install reported success but import still fails"
+        return 1
+    fi
+}
 
 install_docker() {
     local tmp
@@ -159,6 +191,9 @@ check_or_install ko       "ko version"                  install_ko
 check_or_install az       "az version"                  install_az
 log "NOTE: If you plan to use a remote (e.g. AKS) cluster, run 'az login' to authenticate the Azure CLI before running the benchmark setup scripts."
 check_or_install cpuid    "cpuid -v"                    install_cpuid
+
+# Python packages required by benchmark scripts (e.g. parse-traces.py).
+ensure_py_pkg requests
 
 # SGX capability check (informational, no install).
 log "Checking for SGX support via cpuid"
