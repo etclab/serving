@@ -71,6 +71,15 @@ run_variant() {
         fi
         echo "Running dev/setup.sh to apply queue-sidecar-image change..."
         "$REPO_ROOT/dev/setup.sh"
+
+        # dev/setup.sh re-applies config/core/ which resets
+        # config-deployment.enable-qcnl-volume-mount to "true". On AKS the
+        # user-container YAML doesn't declare the sgx-default-qcnl-local volume,
+        # so the queue-proxy mount injection produces an invalid Deployment.
+        if [[ "$USE_AKS" == "true" ]]; then
+            kubectl patch configmap "$CONFIGMAP_NAME" -n "$CONFIGMAP_NAMESPACE" \
+                --type merge -p '{"data":{"enable-qcnl-volume-mount":"false"}}'
+        fi
     fi
 
     # Run the benchmark

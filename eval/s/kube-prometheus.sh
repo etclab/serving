@@ -9,6 +9,8 @@ helm repo update
 RELEASE_NAME=kube-prometheus
 NAMESPACE=monitoring
 
+kubectl create namespace $NAMESPACE || true
+
 helm uninstall $RELEASE_NAME --wait --ignore-not-found --namespace $NAMESPACE
 
 helm install $RELEASE_NAME prometheus-community/kube-prometheus-stack \

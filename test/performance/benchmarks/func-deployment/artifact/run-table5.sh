@@ -7,8 +7,8 @@ set -e
 ARTIFACT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$ARTIFACT_DIR/.." && pwd)"
 
-REPEAT=${REPEAT:-5}
-USE_AKS=${USE_AKS:-false}
+REPEAT=${REPEAT:-3}
+USE_AKS=${USE_AKS:-true}
 
 echo "Running func-deployment benchmark (REPEAT=$REPEAT, USE_AKS=$USE_AKS)..."
 REPEAT="$REPEAT" USE_AKS="$USE_AKS" "$BENCH_DIR/run-benchmark.sh"
