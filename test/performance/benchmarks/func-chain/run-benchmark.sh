@@ -7,9 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Get the repository root (4 levels up from test/performance/benchmarks/func-chain/)
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
-source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
-
-export KO_DOCKER_REPO='docker.io/atosh502'
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-"docker.io/atosh502"}" && source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 
 # All available strategies
 ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "member-efunction" "leader-efunction" "both" "both-sig" "both-hash-chain-sig")

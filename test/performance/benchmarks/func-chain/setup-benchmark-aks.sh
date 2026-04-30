@@ -12,8 +12,10 @@ echo "=========================================="
 echo "Setting up AKS cluster for func-chain benchmark..."
 echo "=========================================="
 
-# Setup AKS cluster with SGX support (idempotent)
-"$SCRIPT_DIR/setup-aks-cluster.sh"
+# cluster has already been setup; 
+# skip setup here as it requires loggin in
+# # Setup AKS cluster with SGX support (idempotent)
+# "$SCRIPT_DIR/setup-aks-cluster.sh"
 
 echo ""
 echo "=========================================="
@@ -21,6 +23,11 @@ echo "Deploying Knative Serving..."
 echo "=========================================="
 
 cd "$REPO_ROOT"
+
+# Pin the ko repo for dev/setup.sh's ko apply calls. DOCKER_USER lets the
+# caller redirect Knative control-plane image pushes to their own Docker Hub.
+DOCKER_USER="${DOCKER_USER:-atosh502}"
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-docker.io/${DOCKER_USER}}"
 
 # Deploy Knative Serving and related components
 "$REPO_ROOT/dev/setup.sh"

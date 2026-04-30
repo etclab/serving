@@ -9,9 +9,10 @@ BENCH_DIR="$(cd "$ARTIFACT_DIR/.." && pwd)"
 
 REPEAT=${REPEAT:-3}
 USE_AKS=${USE_AKS:-true}
+DOCKER_USER="${DOCKER_USER:-atosh502}"
 
 echo "Running func-deployment benchmark (REPEAT=$REPEAT, USE_AKS=$USE_AKS)..."
-REPEAT="$REPEAT" USE_AKS="$USE_AKS" "$BENCH_DIR/run-benchmark.sh"
+REPEAT="$REPEAT" KO_DOCKER_REPO="docker.io/${DOCKER_USER}" USE_AKS="$USE_AKS" "$BENCH_DIR/run-benchmark.sh"
 
 echo ""
 echo "Extracting Table 5..."

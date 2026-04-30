@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Get the repository root (4 levels up from test/performance/benchmarks/func-deployment/)
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-"docker.io/atosh502"}"
+
 # ConfigMap containing queue-sidecar-image config
 CONFIGMAP_NAME="config-deployment"
 CONFIGMAP_NAMESPACE="knative-serving"

@@ -127,7 +127,7 @@ echo "pod_name,pod_scheduled_time,pod_ready_time" > "$DATA_FILE"
 
 REPEAT=${REPEAT:-2}
 
-export KO_DOCKER_REPO=docker.io/atosh502
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-"docker.io/atosh502"}"
 
 NAMESPACE="default"
 

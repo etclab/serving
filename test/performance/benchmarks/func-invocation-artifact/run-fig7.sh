@@ -26,6 +26,11 @@
 #                       Override the run dir picked for a strategy. NAME is
 #                       the strategy in upper case with '-' replaced by '_'
 #                       (e.g. STRATEGY_RUN_DIR_LAMBADA_MEMBER=...).
+#   DOCKER_USER         Docker Hub user used to build the
+#                       KO_DOCKER_REPO=docker.io/<user> repo passed to every
+#                       nested run-appender*.sh (default: atosh502).
+#   KO_DOCKER_REPO      Full ko repo override. If set, takes precedence over
+#                       DOCKER_USER and is propagated to nested scripts.
 #
 # Produces:
 #   artifact/<strategy>.data   (one per strategy)
@@ -44,6 +49,12 @@ export USE_AKS="${USE_AKS:-false}"
 # `bash -c "cd … && ./run-appender-ego.sh"` invocations below.
 export RATES="${RATES:-250 500 750 1000 1250 1500}"
 export DURATION="${DURATION:-5m}"
+
+# Propagate the ko repo to every nested run-appender*.sh. Honor an explicit
+# KO_DOCKER_REPO if the caller already set one; otherwise build it from
+# DOCKER_USER (default atosh502, matching func-chain/artifact/run-fig8.sh).
+DOCKER_USER="${DOCKER_USER:-atosh502}"
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-docker.io/${DOCKER_USER}}"
 
 STRATEGY_ARG="${1:-all}"
 ALL_STRATEGIES=(stock enclave rsa samba lambada-member)

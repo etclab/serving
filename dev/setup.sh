@@ -3,7 +3,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-export KO_DOCKER_REPO='docker.io/atosh502'
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-docker.io/atosh502}"
 
 # cert-manager related
 printf "\n\nInstalling cert-manager...\n"

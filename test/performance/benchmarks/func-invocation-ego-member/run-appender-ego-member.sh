@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 
-export KO_DOCKER_REPO='docker.io/atosh502'
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-docker.io/atosh502}"
 # export KO_DOCKER_REPO="us-east1-docker.pkg.dev/ornate-flame-397517/lambada"
 
 export USE_AKS="${USE_AKS:-false}"

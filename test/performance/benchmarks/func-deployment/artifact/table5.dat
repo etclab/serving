@@ -1,7 +1,7 @@
 # Table 5: Average time (sec) to deploy function configurations
-# Source run: 2026-04-29_15:16:42
+# Source run: 2026-04-29_18:34:10
 # Function Configuration           Duration (s)
-  Knative Function                        1.333
-  EFunction                               4.333
+  Knative Function                        1.000
+  EFunction                               5.000
   \SystemName Leader EFunction            5.000
-  \SystemName Follower EFunction          4.667
+  \SystemName Follower EFunction          4.000

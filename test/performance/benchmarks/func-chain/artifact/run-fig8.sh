@@ -23,6 +23,7 @@ BENCH_DIR="$(cd "$HERE/.." && pwd)"
 
 RATE="${1:-100}"
 DURATION="${2:-5m}"
+DOCKER_USER="${DOCKER_USER:-atosh502}"
 
 if ! command -v gnuplot >/dev/null 2>&1; then
     echo "error: gnuplot not found on PATH" >&2
@@ -32,7 +33,7 @@ fi
 if [[ "${SKIP_BENCHMARK:-false}" != "true" ]]; then
     echo "==> running benchmark for all strategies (rate=${RATE}, duration=${DURATION})"
     eval $(minikube docker-env)
-    USE_AKS=true "$BENCH_DIR/run-benchmark.sh" all "$RATE" "$DURATION"
+    USE_AKS=true KO_DOCKER_REPO="docker.io/${DOCKER_USER}" "$BENCH_DIR/run-benchmark.sh" all "$RATE" "$DURATION"
 
     echo "==> collecting *_traces.data into $HERE"
     python3 "$HERE/extract-fig8-data.py" \
