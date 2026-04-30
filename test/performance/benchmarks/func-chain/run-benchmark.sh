@@ -7,9 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Get the repository root (4 levels up from test/performance/benchmarks/func-chain/)
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
-source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
-
-export KO_DOCKER_REPO='docker.io/atosh502'
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-"docker.io/atosh502"}" && source "${SCRIPT_DIR}/../../../../eval/s/env.sh"
 
 # All available strategies
 ALL_STRATEGIES=("knative" "efunction" "rsa-efunction" "member-efunction" "leader-efunction" "both" "both-sig" "both-hash-chain-sig")
@@ -132,7 +130,7 @@ function run_job() {
   kubectl delete job "$name" -n "$ns" --ignore-not-found=true
 
   # Start the load test
-  RATE=$rate DURATION=$DURATION TARGET=$TARGET STRATEGY=$strategy envsubst < "$file" | ko apply --local --sbom=none -Bf -
+  RATE=$rate DURATION=$DURATION TARGET=$TARGET STRATEGY=$strategy envsubst < "$file" | ko apply --sbom=none -Bf -
 
   # Wait for pod to be ready
   sleep 5

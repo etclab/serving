@@ -399,7 +399,7 @@ spec:
         app: net-kourier-controller
     spec:
       containers:
-        - image: gcr.io/knative-nightly/knative.dev/net-kourier/cmd/kourier@sha256:8eee6ec08a00c2f128073c99c329bf22d072d545781bd991bc1abbff791c3848
+        - image: gcr.io/knative-releases/knative.dev/net-kourier/cmd/kourier:v1.16.0
           name: controller
           env:
             # CERTS_SECRET_NAMESPACE and CERTS_SECRET_NAME can also be configured from a ConfigMap.

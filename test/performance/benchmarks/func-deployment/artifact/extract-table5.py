@@ -94,9 +94,11 @@ def main():
         sys.exit(1)
 
     ts_path = run_dir / timestamp
+    # AKS runs nest variant dirs under an extra "aks/" subfolder.
+    variant_root = ts_path / "aks" if (ts_path / "aks").is_dir() else ts_path
     rows = []
     for variant in VARIANT_ORDER:
-        variant_dir = ts_path / variant
+        variant_dir = variant_root / variant
         label = VARIANT_LABELS[variant]
         if not variant_dir.is_dir():
             rows.append((label, None))

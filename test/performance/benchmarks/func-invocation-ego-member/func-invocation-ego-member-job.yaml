@@ -47,7 +47,7 @@ spec:
       containers:
         - name: func-invocation-ego-member
           image: ko://knative.dev/serving/test/performance/benchmarks/func-invocation-ego-member
-          args: ["-target=appender-ego-member", "--duration=5m"]
+          args: ["-target=appender-ego-member", "--duration=${DURATION}"]
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:

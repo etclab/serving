@@ -17,6 +17,11 @@ cd "$REPO_ROOT"
 # Setup minikube cluster
 "$REPO_ROOT/dev/setup-minikube.sh"
 
+# Pin the ko repo for dev/setup.sh's ko apply calls. DOCKER_USER lets the
+# caller redirect Knative control-plane image pushes to their own Docker Hub.
+DOCKER_USER="${DOCKER_USER:-atosh502}"
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-docker.io/${DOCKER_USER}}"
+
 # Setup knative serving
 "$REPO_ROOT/dev/setup.sh"
 

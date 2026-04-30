@@ -12,8 +12,10 @@ echo "=========================================="
 echo "Setting up AKS cluster for func-chain benchmark..."
 echo "=========================================="
 
-# Setup AKS cluster with SGX support (idempotent)
-"$SCRIPT_DIR/setup-aks-cluster.sh"
+# cluster has already been setup; 
+# skip setup here as it requires loggin in
+# # Setup AKS cluster with SGX support (idempotent)
+# "$SCRIPT_DIR/setup-aks-cluster.sh"
 
 echo ""
 echo "=========================================="
@@ -21,6 +23,11 @@ echo "Deploying Knative Serving..."
 echo "=========================================="
 
 cd "$REPO_ROOT"
+
+# Pin the ko repo for dev/setup.sh's ko apply calls. DOCKER_USER lets the
+# caller redirect Knative control-plane image pushes to their own Docker Hub.
+DOCKER_USER="${DOCKER_USER:-atosh502}"
+export KO_DOCKER_REPO="${KO_DOCKER_REPO:-docker.io/${DOCKER_USER}}"
 
 # Deploy Knative Serving and related components
 "$REPO_ROOT/dev/setup.sh"
@@ -60,17 +67,40 @@ echo "=========================================="
 
 echo ""
 echo "=========================================="
+echo "Installing kube-prometheus-stack..."
+echo "=========================================="
+
+# Install kube-prometheus-stack (Prometheus, Grafana, kube-state-metrics)
+# Port forwarding works the same for remote AKS - kubectl tunnels through the API server
+"$REPO_ROOT/eval/s/kube-prometheus.sh"
+
+echo ""
+echo "=========================================="
+echo "Installing InfluxDB (required by func-invocation* benchmarks)..."
+echo "=========================================="
+
+# Install InfluxDB via helm and initialize the Knativetest org + knative-serving
+# bucket. eval/s/influx.sh sed-rewrites INFLUX_TOKEN in eval/s/env.sh on success,
+# so we re-source env.sh below to pick up the fresh token before creating the
+# performance-test-config secret.
+"$REPO_ROOT/eval/s/influx.sh"
+
+echo ""
+echo "=========================================="
 echo "Creating performance-test-config secret..."
 echo "=========================================="
 
-# Create performance-test-config secret
+# Re-source env.sh AFTER influx.sh so INFLUX_TOKEN reflects the freshly-issued
+# admin token written into env.sh by the helm install above.
 source "$REPO_ROOT/eval/s/env.sh"
 
 kubectl delete secret performance-test-config -n default --ignore-not-found=true
 kubectl create secret generic performance-test-config -n default \
   --from-literal=systemnamespace="${SYSTEM_NAMESPACE:-knative-serving}" \
   --from-literal=jobname="${JOB_NAME:-local}" \
-  --from-literal=buildid="${BUILD_ID:-local}"
+  --from-literal=buildid="${BUILD_ID:-local}" \
+  --from-literal=influxurl="${INFLUX_URL}" \
+  --from-literal=influxtoken="${INFLUX_TOKEN}"
 
 echo ""
 echo "=========================================="

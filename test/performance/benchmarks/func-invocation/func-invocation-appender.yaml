@@ -47,7 +47,7 @@ spec:
       containers:
         - name: func-invocation
           image: ko://knative.dev/serving/test/performance/benchmarks/func-invocation
-          args: ["-target=appender", "--duration=5m"]
+          args: ["-target=appender", "--duration=${DURATION}"]
           env:
             - name: SYSTEM_NAMESPACE
               valueFrom:
