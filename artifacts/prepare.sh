@@ -49,6 +49,7 @@ install_gnuplot() { install_apt_pkg gnuplot; }
 install_cpuid()   { install_apt_pkg cpuid; }
 install_pip()     { install_apt_pkg python3-pip; }
 install_screen()  { install_apt_pkg screen; }
+install_jq()      { install_apt_pkg jq; }
 
 have_py_pkg() {
     python3 -c "import $1" >/dev/null 2>&1
@@ -193,6 +194,7 @@ check_or_install az       "az version"                  install_az
 log "NOTE: If you plan to use a remote (e.g. AKS) cluster, run 'az login' to authenticate the Azure CLI before running the benchmark setup scripts."
 check_or_install cpuid    "cpuid -v"                    install_cpuid
 check_or_install screen   "screen --version"            install_screen
+check_or_install jq       "jq --version"                install_jq
 
 # Python packages required by benchmark scripts (e.g. parse-traces.py).
 ensure_py_pkg requests
