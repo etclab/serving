@@ -79,18 +79,33 @@ All benchmarks are run on Linux/Ubuntu machines.
         ```
 </details>
 
-## 4. Azure Kubernetes Service (AKS) Cluster setup
-A two-node Azure Kubernetes Cluster has been setup for running the benchmarks. Please follow the instructions and credentials mentioned in the HotCRP comment to update your local `~/.kube/config` file.
+## 4. Azure Kubernetes Service (AKS) Cluster & Docker Setup
+- A two-node Azure Kubernetes Cluster has been setup for running the benchmarks. Please follow the instructions and credentials mentioned in the HotCRP comment to update your local `~/.kube/config` file. Expected output after successful AKS cluster setup:
+    ```bash
+    apoudel01@node0:~/serving$ kubectl cluster-info
+    Kubernetes control plane is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443
+    CoreDNS is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+    Metrics-server is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443/api/v1/namespaces/kube-system/services/https:metrics-server:/proxy
 
-Expected output after successful AKS cluster setup:
-```bash
-apoudel01@node0:~/serving$ kubectl cluster-info
-Kubernetes control plane is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443
-CoreDNS is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
-Metrics-server is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443/api/v1/namespaces/kube-system/services/https:metrics-server:/proxy
+    To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+    ```
 
-To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
-```
+- Next, create a docker hub account(https://hub.docker.com), and login to docker using: `docker login`. An example output after successful login is shown below:
+    ```bash
+    apoudel@node0:~/serving$ docker login
+    Authenticating with existing credentials... [Username: apoudel01]
+
+    i Info → To login with a different account, run 'docker logout' followed by 'docker login'
+
+
+    Login Succeeded
+    ```
+- Finally, export your docker username as it is required for the subsequent steps.
+    ```bash
+    export DOCKER_USER=<your_docker_username>
+    ```
+
+
 
 ## 5. Figure 8 (Section 7.2 Application Macrobenchmark)
 - Compares end-to-end function-chain latency for the `emojivoto` application.
@@ -99,11 +114,11 @@ To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
 - 
     ```bash
     cd test/performance/benchmarks/func-chain
-    ./setup-benchmark-aks.sh
+    DOCKER_USER=$DOCKER_USER ./setup-benchmark-aks.sh
     # re-plot only (reuse .data files already in artifact/)
     SKIP_BENCHMARK=true ./artifact/run-fig8.sh 100 5m
     # run complete benchmark on Azure Kubernetes Service (takes ~30-40 mins)
-    USE_AKS=true ./artifact/run-fig8.sh 100 30s
+    USE_AKS=true DOCKER_USER=$DOCKER_USER ./artifact/run-fig8.sh 100 30s
     cd -
     ```
 - Final output is generated at `test/performance/benchmarks/func-chain/artifact/fig8.pdf`.
@@ -117,14 +132,14 @@ To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
     ```bash
     # uses the same cluster setup as Figure 8 so can be skipped
     # cd test/performance/benchmarks/func-chain
-    # ./setup-benchmark-aks.sh
+    # DOCKER_USER=$DOCKER_USER ./setup-benchmark-aks.sh
     # cd -
 
     cd test/performance/benchmarks/func-invocation-artifact
     # re-plot only (reuse *.data files already in artifact/)
     SKIP_BENCHMARK=true ./run-fig7.sh
     # run complete benchmark on Azure Kubernetes Service (takes ~30-40 mins)
-    USE_AKS=true RATES="100 200 300 400" DURATION=1m ./run-fig7.sh
+    USE_AKS=true DOCKER_USER=$DOCKER_USER RATES="100 200 300 400" DURATION=1m ./run-fig7.sh
     cd - 
     ```
 - Final output is generated at `test/performance/benchmarks/func-invocation-artifact/fig7.pdf`.
@@ -138,12 +153,12 @@ To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
     ```bash
     # uses the same cluster setup as Figure 8 so can be skipped
     # cd test/performance/benchmarks/func-chain
-    # ./setup-benchmark-aks.sh
+    # DOCKER_USER=$DOCKER_USER ./setup-benchmark-aks.sh
     # cd -
 
     cd test/performance/benchmarks/func-deployment
     # run complete benchmark on Azure Kubernetes Service (takes <30 mins)
-    USE_AKS=true REPEAT=3 ./artifact/run-table5.sh
+    USE_AKS=true DOCKER_USER=$DOCKER_USER REPEAT=3 ./artifact/run-table5.sh
     cd - 
     ```
 - Final output is generated at `test/performance/benchmarks/func-deployment/artifact/table5.dat`.
