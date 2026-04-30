@@ -79,32 +79,52 @@ All benchmarks are run on Linux/Ubuntu machines.
         ```
 </details>
 
-<details>
-    <summary>Details on Kubernetes Cluster setup</summary>
+## 4. Azure Kubernetes Service (AKS) Cluster & Docker Setup
+- A two-node Azure Kubernetes Cluster has been setup for running the benchmarks. Please follow the instructions and credentials mentioned in the HotCRP comment to update your local `~/.kube/config` file. Expected output after successful AKS cluster setup:
+    ```bash
+    apoudel01@node0:~/serving$ kubectl cluster-info
+    Kubernetes control plane is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443
+    CoreDNS is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+    Metrics-server is running at https://lambada-lambada-3d1fab-gqd9l1pb.hcp.eastus.azmk8s.io:443/api/v1/namespaces/kube-system/services/https:metrics-server:/proxy
 
-### About Kubernetes Cluster setup
-Cluster setup can be done either on a SGX-enabled machine with minikube or on a remote Azure Kubernetes cluster (AKS) consisting of SGX-enabled nodes. The setup scripts are located under each benchmark (figure/table) and differ depending on where they are being run or what benchmark is being run.
-- `setup-benchmark.sh` sets up a local minikube cluster
-- `setup-benchmark-aks.sh` sets up a remote AKS k8s cluster
-</details>
+    To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+    ```
+
+- Next, create a docker hub account(https://hub.docker.com), and login to docker using: `docker login`. An example output after successful login is shown below:
+    ```bash
+    apoudel@node0:~/serving$ docker login
+    Authenticating with existing credentials... [Username: apoudel01]
+
+    i Info → To login with a different account, run 'docker logout' followed by 'docker login'
 
 
-## 4. Figure 8 (Section 7.2 Application Macrobenchmark)
+    Login Succeeded
+    ```
+- Finally, export your docker username as it is required for the subsequent steps.
+    ```bash
+    export DOCKER_USER=<your_docker_username>
+    ```
+
+
+
+## 5. Figure 8 (Section 7.2 Application Macrobenchmark)
 - Compares end-to-end function-chain latency for the `emojivoto` application.
 
 ### Generating figure 8
 - 
     ```bash
     cd test/performance/benchmarks/func-chain
-    ./setup-benchmark.sh
+    DOCKER_USER=$DOCKER_USER ./setup-benchmark-aks.sh
     # re-plot only (reuse .data files already in artifact/)
     SKIP_BENCHMARK=true ./artifact/run-fig8.sh 100 5m
+    # run complete benchmark on Azure Kubernetes Service (takes ~30-40 mins)
+    USE_AKS=true DOCKER_USER=$DOCKER_USER ./artifact/run-fig8.sh 100 30s
     cd -
     ```
 - Final output is generated at `test/performance/benchmarks/func-chain/artifact/fig8.pdf`.
 
 
-## 5. Figure 7 (Section 7.1 Stress Tests -> Function invocation)
+## 6. Figure 7 (Section 7.1 Stress Tests -> Function invocation)
 - Measures single-function invocation latency using vegeta load generator.
 
 ### Generating figure 7
@@ -112,35 +132,43 @@ Cluster setup can be done either on a SGX-enabled machine with minikube or on a 
     ```bash
     # uses the same cluster setup as Figure 8 so can be skipped
     # cd test/performance/benchmarks/func-chain
-    # ./setup-benchmark.sh
+    # DOCKER_USER=$DOCKER_USER ./setup-benchmark-aks.sh
     # cd -
 
     cd test/performance/benchmarks/func-invocation-artifact
     # re-plot only (reuse *.data files already in artifact/)
     SKIP_BENCHMARK=true ./run-fig7.sh
+    # run complete benchmark on Azure Kubernetes Service (takes ~30-40 mins)
+    USE_AKS=true DOCKER_USER=$DOCKER_USER RATES="100 200 300 400" DURATION=1m ./run-fig7.sh
     cd - 
     ```
 - Final output is generated at `test/performance/benchmarks/func-invocation-artifact/fig7.pdf`.
 
 
-## 6. Table 5 (Section 7.1 Stress tests -> Function Deployment Time)
+## 7. Table 5 (Section 7.1 Stress tests -> Function Deployment Time)
 - Measures the average time (in seconds) to deploy different function configurations.
 
 ### Generating Table 5
 -
     ```bash
+    # uses the same cluster setup as Figure 8 so can be skipped
+    # cd test/performance/benchmarks/func-chain
+    # DOCKER_USER=$DOCKER_USER ./setup-benchmark-aks.sh
+    # cd -
+
     cd test/performance/benchmarks/func-deployment
-    ./setup-benchmark.sh
-    REPEAT=5 ./artifact/run-table5.sh
+    # run complete benchmark on Azure Kubernetes Service (takes <30 mins)
+    USE_AKS=true DOCKER_USER=$DOCKER_USER REPEAT=3 ./artifact/run-table5.sh
     cd - 
     ```
 - Final output is generated at `test/performance/benchmarks/func-deployment/artifact/table5.dat`.
 
 
-## 7. Microbenchmarks
-### 7.a. Generating figure 5 (Section 6.4 Cryptographic Schemes)
+## 8. Microbenchmarks
+### 8.a. Generating figure 5 (Section 6.4 Cryptographic Schemes)
 - Measures and compares the time for proxy re-encryption algorithms across schemes. 
     ```bash
+    # micro-benchmarks don't requires AKS cluster and can be run locally
     cd test/performance/benchmarks/micro-bench/proxy-re-encrypt-comparison
     ./run-fig5.sh
     cd -
@@ -148,9 +176,10 @@ Cluster setup can be done either on a SGX-enabled machine with minikube or on a 
 - Final output is generated at `test/performance/benchmarks/micro-bench/proxy-re-encrypt-comparison/fig5.pdf`.
 
 
-### 7.b. Generating figure 6 (Section 6.4 Cryptographic Schemes)
+### 8.b. Generating figure 6 (Section 6.4 Cryptographic Schemes)
 - Compares signature generation and verification times for aggregate and multi-signature schemes. The ncircle sweep is slow (>30+ min); the script reuses an existing `ncircle-bench.txt` unless `--fresh-ncircle` is passed.
     ```bash
+    # micro-benchmarks don't requires AKS cluster and can be run locally
     cd test/performance/benchmarks/micro-bench/sign-verify-signature-schemes
     ./run-fig6.sh
     cd -
